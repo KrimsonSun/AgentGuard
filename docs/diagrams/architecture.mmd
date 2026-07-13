@@ -1,10 +1,10 @@
 %% AgentGuard — 语音门卫访客登记系统 · 架构图
 %% 渲染: mermaid.live 或 VS Code Mermaid 插件 / 之后同步到 Figma
 flowchart TB
-    U["📞 访客驾驶员手机<br/>(拨打园区张贴号码)"]
+    U["📞 访客驾驶员手机<br/>(拨号 / 扫码链接 / 企微语音)"]
 
-    subgraph telephony["电话接入层 · Twilio"]
-        TW["Twilio 号码<br/>PSTN ⇄ SIP"]
+    subgraph telephony["呼入边缘层 · 可插拔"]
+        TW["demo: WebRTC 网页通话<br/>通道2: 企微语音消息 (QClaw/OpenClaw 方向)<br/>生产: SIP/PSTN (Twilio/阿里云)"]
     end
 
     subgraph media["实时媒体层 · 常驻主机 (LiveKit Cloud / VM)"]

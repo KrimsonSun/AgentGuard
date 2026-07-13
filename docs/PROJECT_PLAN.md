@@ -32,7 +32,7 @@
 ## 3. 架构分层（决策已锁定）
 
 ```
-访客手机 ──拨号──▶ Twilio(PSTN⇄SIP) ──▶ LiveKit 媒体(常驻主机)
+访客 ──WebRTC链接(demo) / 企微语音消息(通道2) / SIP·PSTN(生产)──▶ LiveKit 媒体
                                           │
                         ┌─────────────────┴─────────────────┐
                         │  门卫 Agent Worker（单 Agent）      │
@@ -51,7 +51,7 @@
 - **语音链路**：自建**链式** STT→LLM→TTS（非端到端 S2S）。理由见 HANDOFF §决策2。
 - **LLM 大脑**：单 agent，经 **OpenRouter**；工具 `lookup_returning_visitor / save_visit / notify_guard / query_stats`。
 - **记忆**：精简 Postgres 为唯一事实源；图-lite 层仅作能力展示。理由见 HANDOFF §决策1。
-- **电话**：Twilio 优先。理由/风险见 HANDOFF §决策3。
+- **呼入**：可插拔边缘——demo 主线 WebRTC 网页通话；企微语音消息第二通道；SIP/PSTN 为生产路径。见 HANDOFF §决策3(v2)。
 - **微信**：企业微信群机器人 Webhook（MVP 单向）；双向放行为可选升级。
 - **Serverless**：混合架构——媒体环路常驻，其余上 Serverless。
 
@@ -64,7 +64,7 @@
 | Day | 目标 | 关键产出 |
 |---|---|---|
 | **0** | 立项 · 选型定稿 · 仓库 + harness · 架构图 | 本套文档 ✅ |
-| **1** | 🔴 **最高风险优先消除**：电话+媒体打通 | Twilio→SIP→LiveKit，一通能接的电话 + Agent 说第一句；定 STT/TTS provider |
+| **1** | 🔴 呼入+媒体打通 | LiveKit WebRTC 网页呼入跑通（Agent 说第一句）；STT/TTS 双方向实测定稿；向对接人发口径确认；（可选15min）试注册 Twilio |
 | **2** | 单 agent 对话核心 | slot 填充 5 字段 + 自然对话 prompt + OpenRouter 接入 + 延迟调优；PG schema + save_visit |
 | **3** | 记忆闭环 + 全链路 | visitor_profiles + 回访识别；企业微信 webhook 推送；跑通全链路 + 25s 计时 |
 | **4** | 对账 + 加分项 | usage_ledger 读/写 token 台账 + per-call 成本报告；图-lite 层；门卫查询 query_stats(NL→SQL) |
@@ -76,7 +76,7 @@
 
 | # | 风险 | 影响 | 缓解 |
 |---|---|---|---|
-| R1 | Twilio 中国可达性 / SIP 接入复杂 | 🔴 阻断 demo | Day1 spike 先消除；fallback：国内 SIP trunk / SaaS 自带号 |
+| R1 | 呼入口径：WebRTC/微信非字面"拨打号码" | 🔴 交付合规 | 第一时间向对接人确认；架构可插拔，SIP 随时可插回 |
 | R2 | 中文 STT/TTS 延迟与自然度 | 25s + "像人"标准 | 多 provider 对比测；流式优先 |
 | R3 | 链式 pipeline 延迟天然高于 S2S | 25s 预算 | 流式 STT/TTS + 快模型 + turn detection；分段并行 |
 | R4 | 个人微信推送不合规/不稳 | 交付可靠性 | 已选企业微信 webhook 规避 |

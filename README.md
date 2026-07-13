@@ -7,7 +7,7 @@
 
 ```mermaid
 flowchart LR
-    U["📞 访客手机"] -->|拨号| TW["Twilio<br/>PSTN⇄SIP"] -->|SIP| LK["LiveKit<br/>媒体"]
+    U["📞 访客"] -->|"WebRTC链接(demo) · SIP/PSTN(生产) · 企微语音(通道2)"| LK["LiveKit<br/>媒体"]
     LK --> STT["流式STT<br/>中文"] --> BRAIN["LLM大脑<br/>OpenRouter"] --> TTS["流式TTS<br/>中文"] --> LK
     BRAIN <-->|回访/统计| DB[("Neon PG<br/>visits·profiles·ledger")]
     BRAIN -->|notify_guard| WX["企业微信<br/>群机器人"]

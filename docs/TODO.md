@@ -2,11 +2,11 @@
 
 > 优先级：🔴 阻断风险 / 🟢 MVP 必须 / 🔵 加分项 / ⚪ 打磨。完成后移入 [PROGRESS](PROGRESS.md)。
 
-## 🔴 Day 1 — 先消除最大风险（电话 + 媒体）
-- [ ] 注册 Twilio，购买号码，配置 SIP trunk
-- [ ] LiveKit（Cloud 或自建）拉起，配 SIP ingress
-- [ ] 打通：拨打 Twilio 号码 → 进入 LiveKit → Agent 播报一句固定语音（语音回环 hello world）
-- [ ] 选定并接通中文流式 STT / TTS provider（对比延迟与自然度）
+## 🔴 Day 1 — 先消除最大风险（呼入 + 媒体）
+- [ ] 向对接人发呼入口径确认（WebRTC 网页通话 / 企微语音消息 是否可作 demo）
+- [ ] LiveKit Cloud 拉起；WebRTC 网页呼入跑通：打开链接 → Agent 播报第一句（语音回环）
+- [ ] 中文流式 STT/TTS 双方向实测对比（国内 火山/阿里/腾讯 vs 国际 Deepgram/Cartesia），出延迟数据定稿
+- [ ] （可选，15min 封顶）试 Twilio 试用注册；成则记 SIP 接入为 Day5 任务，败则记录摩擦点（答辩素材）
 - [ ] 记录接入过程中的坑（答辩用）→ HANDOFF / PROGRESS
 
 ## 🟢 MVP 必须
