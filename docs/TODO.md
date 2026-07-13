@@ -33,7 +33,8 @@
 - [ ] 亲朋实拨测试，收集反馈 → 迭代
 
 ## 🔵 加分项
-- [ ] 回访识别：`lookup_returning_visitor(车牌/手机号)` → 注入历史摘要，直接确认（memory.py 已实现，待接语音）
+- [x] 回访识别：Path A 主叫号+Path B 报车牌+确认闸门，prompts/agent/memory 已落地，revisit_demo 3 场景实测通过（待接语音）
+  - [ ] WebRTC demo 把主叫号带进 participant 属性（Path A 依赖）；语音端接线后端到端回归
 - [x] 门卫查询 Agent：NL→只读SQL（本周多少车/某人本月几次/峰值时段）— console /api/ask 已实测通过
 - [ ] 门卫查询 Day2：公司名归一化、时区、"本周"口径（见 HANDOFF §决策9）
 - [ ] 图-lite 层：pgvector 语义索引（事由/公司别名模糊匹配）/ 可选 Apache AGE

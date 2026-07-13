@@ -16,7 +16,9 @@ from livekit.agents import Agent, AgentSession, JobContext, RunContext, function
 from livekit.plugins import openai as lk_openai
 from livekit.plugins import silero
 
-from . import ledger, memory, runtime_config, wecom
+from datetime import datetime
+
+from . import ledger, memory, prompts, runtime_config, wecom
 from .config import settings
 from .prompts import GREETING, RETURNING_VISITOR_TEMPLATE, SYSTEM_PROMPT
 from .slots import VisitSlots, normalize_phone, normalize_plate
@@ -143,7 +145,36 @@ async def entrypoint(ctx: JobContext) -> None:
 
     await session.start(agent=gate, room=ctx.room)
     gate.connected_at = time.monotonic()  # Agent 开口 = 25s 计时起点
-    session.say(GREETING)  # 固定开场白直走 TTS，LLM 不在接听路径（秒接）
+
+    # 回访 Path A：接通即用主叫号码查画像（点查，与开场并行，不走 LLM → 仍秒接）。
+    # [Day1] 主叫号取法按 LiveKit SIP 版本校准（participant.attributes['sip.phoneNumber'] 等）。
+    caller_phone = _caller_phone(ctx)
+    profile = await memory.lookup_returning_visitor(phone=caller_phone) if caller_phone else None
+    if profile:
+        # 认出老客：personalized 开场（模板拼接，不走 LLM）+ 注入高置信回访上下文供确认后直接提交
+        gate.slots.visitor_name = profile.get("visitor_name")
+        phrase = prompts.human_last_visit(profile["last_visit_at"], datetime.now())
+        try:  # [Day1] chat_ctx 注入 API 按 livekit-agents 版本校准
+            await gate.update_chat_ctx(
+                gate.chat_ctx.add_message(role="system", content=prompts.returning_context(profile, phrase)))
+        except Exception:
+            log.warning("回访上下文注入失败，降级为 Path B（报车牌后匹配）")
+        session.say(prompts.returning_greeting(profile))  # "张师傅您好，今天还是来…吗？"
+    else:
+        session.say(GREETING)  # 未识别：固定通用开场白
+
+
+def _caller_phone(ctx: JobContext) -> str | None:
+    """从 SIP 参与者属性尽力取主叫号码；取不到返回 None（走 Path B：报车牌后匹配）。"""
+    try:
+        for p in ctx.room.remote_participants.values():
+            for k in ("sip.phoneNumber", "sip.from", "sip.trunkPhoneNumber"):
+                v = (p.attributes or {}).get(k)
+                if v:
+                    return "".join(c for c in v if c.isdigit())[-11:]
+    except Exception:
+        pass
+    return None
 
     # 通话结束时打印对账（挂断回调里执行，[Day1] 校准挂断事件名）
     # summary = await ledger.call_summary(gate.call_id)

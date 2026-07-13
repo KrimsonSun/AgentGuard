@@ -2,6 +2,12 @@
 
 > 倒序记录，每条含日期。实现阶段请顺手记录**用 AI 辅助编码的关键决策与审查点**（答辩要考）。
 
+## Day 1 · 2026-07-13（回访真实感设计+验证）
+- **回访方案**（HANDOFF §决策10）：Path A 主叫号码匹配→personalized 秒接开场；Path B 报车牌兜底；确认闸门防幻觉。
+- `experiments/revisit_demo.py` 用真实种子张师傅画像实测 3 场景全过：完整确认(1轮放行)/中途改目的地(只改变化项)/含糊不乱登记。
+- 落地：`prompts.py`(returning_greeting/context/human_last_visit + 回访铁律)；`agent.py` Path A 接线(`_caller_phone` + 注入)；py_compile 通过。
+- 待办：WebRTC demo 需把主叫号带进 participant 属性（Path A 依赖）。
+
 ## Day 1 · 2026-07-13（深夜 · 自主调试第二轮 · 回答用户 Q2/Q3）
 - **完整 trace/log 系统**（回答 Q2）：`app/trace.py` 双写 Neon `call_traces` + JSONL；
   `experiments/trace_demo.py` 跑真实通话验证——17 事件完整时间线，每步 latency，5 次 LLM 累计 ~5.6s。

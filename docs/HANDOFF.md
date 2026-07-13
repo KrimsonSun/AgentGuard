@@ -186,6 +186,27 @@
 
 ---
 
+## 决策 10（2026-07-13）— 回访真实感：来电号码优先 + 报车牌兜底 + 确认闸门
+
+**核心洞察**：真人门卫张口叫"张师傅"，靠的是**开口前**就知道你是谁。AI 复刻靠身份提前拿到，两条路：
+- **Path A（理想）— 主叫号码匹配**：接通瞬间用 SIP 主叫号查 `visitor_profiles`（点查，与开场并行，不占开口路径）。
+  命中→personalized 开场（**模板拼接、不走 LLM → 仍秒接**）："张师傅您好，今天还是来蓝色鲸鱼送货吗？"→"对"→2 轮≈8s 放行。
+- **Path B（兜底）— 报车牌后匹配**：无主叫号（号码隐藏 / WebRTC demo 无真号）时走通用开场，拿到车牌那刻查画像→中途转向确认。
+
+**真实感四要点**：① 认出就不逐项审问，抛已知记录让点头；② 人性化时间（`human_last_visit`：昨天/上次(周三)/上周/上个月）；
+③ 变化分支（"改去启明"→只改变化项，保留车牌/手机/称呼）；④ **确认闸门**：未获对方明确确认前禁止 save_visit（防回访幻觉）。
+
+**已实测验证**（`experiments/revisit_demo.py`，用真实种子张师傅画像，gemini-2.5-flash-lite）：
+- A 完整确认：开场后 1 轮提交，全部已知值一次带出 ✅
+- B 中途改目的地：保留车牌/手机/张师傅，只改 单位→启明科技 + 事由→拜访 ✅
+- C 含糊"嗯……啥？"：**未乱登记**，重问一句，"哦对"后才提交——确认闸门守住 ✅
+
+**实现落点**：`app/prompts.py`（returning_greeting/returning_context/human_last_visit + 回访铁律）；
+`app/agent.py` entrypoint（Path A 主叫号查画像→personalized 开场+注入上下文；`_caller_phone()` 取号）；
+`app/memory.py`（lookup_returning_visitor 已就位）。**依赖**：Path A 需真主叫号——PSTN/SIP 有，WebRTC demo 需在建房时把号码带进 participant 属性（[Day1] 落）。
+
+---
+
 ## 未决项 / 待确认
 
 - [ ] 题目实际收到日（校准 Day 7 截止）——问对接人。
