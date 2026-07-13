@@ -1,0 +1,30 @@
+# --- secrets / env ---
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# --- python ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# --- node ---
+node_modules/
+dist/
+.wrangler/
+
+# --- logs / data ---
+*.log
+logs/
+*.wav
+*.mp3
+recordings/
+
+# --- os / editor ---
+.DS_Store
+.idea/
+.vscode/

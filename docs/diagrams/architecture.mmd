@@ -1,0 +1,40 @@
+%% AgentGuard — 语音门卫访客登记系统 · 架构图
+%% 渲染: mermaid.live 或 VS Code Mermaid 插件 / 之后同步到 Figma
+flowchart TB
+    U["📞 访客驾驶员手机<br/>(拨打园区张贴号码)"]
+
+    subgraph telephony["电话接入层 · Twilio"]
+        TW["Twilio 号码<br/>PSTN ⇄ SIP"]
+    end
+
+    subgraph media["实时媒体层 · 常驻主机 (LiveKit Cloud / VM)"]
+        LK["LiveKit 媒体服务<br/>SIP ingress · 音频路由"]
+        subgraph agent["门卫 Agent Worker · 单 Agent"]
+            STT["流式 STT<br/>中文 ASR"]
+            BRAIN["LLM 大脑 (via OpenRouter)<br/>slot 填充 + 工具调用<br/>+ turn detection / barge-in"]
+            TTS["流式 TTS<br/>中文自然语音"]
+        end
+    end
+
+    subgraph memory["记忆 / 事实源 · Neon Postgres"]
+        DB[("visits · visitor_profiles · usage_ledger")]
+        GL["图-lite 层<br/>pgvector / Apache AGE"]
+    end
+
+    subgraph serverless["Serverless 层"]
+        OR["OpenRouter API<br/>(LLM 推理 · 计 token)"]
+        WECOM["企业微信群机器人<br/>Webhook → 保安"]
+        CF["CF Workers<br/>门卫查询 API"]
+        GHA["GitHub Actions<br/>CI/CD"]
+    end
+
+    U -->|拨号| TW -->|SIP| LK --> STT --> BRAIN --> TTS --> LK -->|语音回传| TW --> U
+    BRAIN <-->|LLM 推理| OR
+    BRAIN -->|lookup_returning_visitor / save_visit / query_stats| DB
+    BRAIN -->|save_visit 语义索引| GL
+    BRAIN -->|notify_guard| WECOM
+    CF <--> DB
+    BRAIN -.->|每次调用记账 读/写 token| DB
+    STT -.->|音频秒数记账| DB
+    TTS -.->|字符/音频记账| DB
+    GHA -.->|部署| media
