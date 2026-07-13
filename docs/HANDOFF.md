@@ -38,6 +38,7 @@
 ## 决策 2 — 语音链路：自建**链式** STT→LLM(OpenRouter)→TTS，**不用**端到端 S2S
 
 **选择**：LiveKit Agents（或 Pipecat）编排流式 STT → LLM(经 OpenRouter) → 流式 TTS，配 turn detection / barge-in。
+**注意**：STT/TTS 必须用**专用流式服务**（带 LiveKit 插件），**不是** OpenRouter 音频端点（那是文件/批处理，会把转写/合成堆到关键路径上，延迟不可接受）——理由详见决策8纠正。LLM 才在 OpenRouter。
 
 **为什么不用端到端 Speech-to-Speech**（OpenAI Realtime / Gemini Live）：
 1. **OpenRouter 目前没有 realtime 语音对语音**（只有文本 chat + 分离的 STT/TTS 端点，且转写是文件式）。要把大脑收敛到 OpenRouter，就得走链式。
@@ -135,9 +136,16 @@
 **收敛结果**：必须新开的账号仅 3 个，全部免费档——**Neon**（记忆/台账事实源，加分组合点名）、
 **LiveKit Cloud**（免费档解决 WebRTC 公网可达/TURN，自建要开端口配 TURN 不值）、
 **企业微信**（个人可注册"团队"类型，无需营业执照，群机器人 webhook 免费）。
-**关键收敛**：STT/TTS 优先实测 **OpenRouter 官方音频端点**（/audio/transcriptions Whisper +
-/audio/speech TTS）——LLM+STT+TTS 三合一收敛到已有账号，台账一处对账；
-代价是转写按段非流式（每轮 +几百ms），Day1 实测中文质量与延迟，不达标再开一家（火山/阿里/Deepgram）。
+**关键收敛（❌ 已纠正，见下）**：曾计划 STT/TTS 用 OpenRouter 音频端点三合一收敛。
+
+> **⚠️ 纠正（2026-07-13，用户质疑推动）**：该收敛**做错了**——为省一个平台牺牲了核心链路延迟，本末倒置。
+> **原因**：OpenRouter 音频端点是**文件式（批处理）**：音频必须整段说完→上传→从头转完才出文字，
+> 全部堆在"说完之后的关键路径"串行发生，且耗时随句长增加（每轮 +几百ms~1s+）；TTS 同理要整段合成完才开口。
+> 而**流式** STT/TTS 把识别/合成叠在说话与播放时间里，说完即基本转好。延迟差源于**流式 vs 批处理**，
+> **与"是否同一平台"无关**：OpenRouter 是网关不是管道，三次调用仍独立，音频还被分发到不同后端（多一跳）。
+> **"合并对账"理由也不成立**：usage_ledger 本就按 component=stt/tts/llm 分厂商记账，独立厂商不损失对账。
+> **最终架构**：LLM 留 OpenRouter（文本流式 OK）；**STT/TTS 用专用流式服务（带 LiveKit 插件）**，
+> 理想选一家中文 ASR+TTS 都做的厂商（火山/阿里，+1 平台）。Day1 实测延迟+中文自然度定。
 **GH Actions 角色澄清**：只做 CI/CD（lint/test/部署 Workers），**不托管常驻 agent**；公开仓库免费。
 **成本预期**：全项目 < $5，全部在 OpenRouter 扣费，usage_ledger 逐笔可对账。
 **依据**：① 题目加分组合原文点名；② 用户约束（OpenRouter 收口/轻量/可对账）；

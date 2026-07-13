@@ -48,7 +48,7 @@
    Serverless 层：OpenRouter(LLM) · Neon(DB) · 企业微信 webhook · CF Workers(门卫查询) · GH Actions(CI/CD)
 ```
 
-- **语音链路**：自建**链式** STT→LLM→TTS（非端到端 S2S）。理由见 HANDOFF §决策2。
+- **语音链路**：自建**链式** 流式STT→LLM(OpenRouter)→流式TTS（非端到端 S2S）。STT/TTS 用专用流式服务，非 OpenRouter 音频端点（延迟）。理由见 HANDOFF §决策2、§决策8纠正。
 - **LLM 大脑**：单 agent，经 **OpenRouter**；工具 `lookup_returning_visitor / save_visit / notify_guard / query_stats`。
 - **记忆**：精简 Postgres 为唯一事实源；图-lite 层仅作能力展示。理由见 HANDOFF §决策1。
 - **呼入**：可插拔边缘——demo 主线 WebRTC 网页通话；企微语音消息第二通道；SIP/PSTN 为生产路径。见 HANDOFF §决策3(v2)。
