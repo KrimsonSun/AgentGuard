@@ -33,10 +33,12 @@
 - [ ] 亲朋实拨测试，收集反馈 → 迭代
 
 ## 🔵 加分项
-- [ ] 回访识别：`lookup_returning_visitor(车牌/手机号)` → 注入历史摘要，直接确认
-- [ ] 门卫查询 Agent：`query_stats()` NL→SQL（本周多少车 / 某人本月几次 / 峰值时段）
+- [ ] 回访识别：`lookup_returning_visitor(车牌/手机号)` → 注入历史摘要，直接确认（memory.py 已实现，待接语音）
+- [x] 门卫查询 Agent：NL→只读SQL（本周多少车/某人本月几次/峰值时段）— console /api/ask 已实测通过
+- [ ] 门卫查询 Day2：公司名归一化、时区、"本周"口径（见 HANDOFF §决策9）
 - [ ] 图-lite 层：pgvector 语义索引（事由/公司别名模糊匹配）/ 可选 Apache AGE
 - [ ] token 对账：`usage_ledger` 读/写 token + STT/TTS 秒数 + 电话分钟；per-call 成本报告
+- [x] 完整 trace/log：`app/trace.py` 双写 Neon + JSONL；console Trace tab 回放 — 已验证
 - [ ] Admin Console 扩展（可选）：成本看板 / 温度参数 / 提示词版本管理
 - [ ] Serverless：CF Workers（门卫查询 API）+ GitHub Actions CI/CD + Neon
 - [ ] 多路并发（多车同时拨打）

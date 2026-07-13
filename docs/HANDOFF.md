@@ -168,6 +168,24 @@
 
 ---
 
+## 决策 9（2026-07-13 夜）— 可观测性（trace/log）+ 查询 console（回答用户 Q2/Q3）
+
+**Q2 reasoning/trace/log**：Agent 是**单 Agent 工具调用循环**（非长链思考模型，门卫要快）；"推理"=判断缺哪些字段并转成工具调用。
+新增 `app/trace.py`：**双写** Neon `call_traces`（可查询）+ 本地 JSONL（`logs/traces/{call_id}.jsonl`，gitignored，可 grep/回放）。
+记录 greeting/user_utterance/llm_message(含 latency_ms)/tool_call/tool_result/hangup。已用 `experiments/trace_demo.py` 跑真实通话验证：
+一通电话 5 次 LLM 调用累计 ~5.6s（1882+1240+1369+585+508ms）——为 25s 预算拆解提供真数据。
+
+**Q3 console 查询**：admin console 扩为三 tab——模型切换 / **访客查询** / **通话 Trace**。新端点：
+`/api/visits`(结构化搜索) `/api/stats`(统计:峰值时段/回访榜/单位分布) `/api/ask`(**门卫查询Agent**:NL→只读SQL→自然语言作答) `/api/traces`(回放)。
+**门卫查询安全护栏**：LLM 生成 SQL 后强制校验（必须 SELECT、禁 DML/多语句/pg_/注释、去尾分号、限两表、加 LIMIT），
+只读事务 + `statement_timeout`。实测："张师傅这个月几次→6次送货"✅、"把手机号删掉"→拦截✅。
+
+**发现（Day2 待办）**：① 公司名归一化——LLM 抽取出"蓝色鲸鱼"vs 播种"蓝色鲸鱼科技"，统计会分裂 → 需受控词表/别名归一；
+② 时间戳时区——naive datetime 写入 TIMESTAMPTZ 显示为 UTC，峰值时段标签偏移 → 用 tz-aware；
+③ NL"本周"= ISO 周一起算，与用户"近7天"直觉不同 → prompt 里明确口径。
+
+---
+
 ## 未决项 / 待确认
 
 - [ ] 题目实际收到日（校准 Day 7 截止）——问对接人。

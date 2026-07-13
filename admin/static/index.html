@@ -3,92 +3,140 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AgentGuard Admin · 模型切换</title>
+<title>AgentGuard Admin</title>
 <style>
   :root { color-scheme: light dark; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
-  body { margin: 0 auto; max-width: 880px; padding: 24px 16px; }
-  h1 { font-size: 1.2rem; } h1 span { opacity: .5; font-weight: 400; font-size: .9rem; }
-  #current { padding: 10px 14px; border-radius: 10px; background: color-mix(in srgb, seagreen 14%, transparent);
-             border: 1px solid seagreen; margin: 12px 0; }
-  #current b { font-family: ui-monospace, monospace; }
+  body { margin: 0 auto; max-width: 960px; padding: 20px 16px 60px; }
+  h1 { font-size: 1.2rem; margin: 0 0 4px; } h1 span { opacity: .5; font-weight: 400; font-size: .85rem; }
+  .tabs { display: flex; gap: 6px; margin: 14px 0; border-bottom: 1px solid #8884; }
+  .tab { padding: 8px 16px; cursor: pointer; border: none; background: none; font-size: .95rem; color: inherit;
+         border-bottom: 2px solid transparent; }
+  .tab.on { border-bottom-color: seagreen; color: seagreen; font-weight: 600; }
+  .panel { display: none; } .panel.on { display: block; }
+  .card { padding: 10px 14px; border-radius: 10px; background: color-mix(in srgb, seagreen 12%, transparent);
+          border: 1px solid seagreen; margin: 10px 0; }
   .bar { display: flex; gap: 8px; margin: 12px 0; }
-  input[type=search] { flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid #8884; font-size: .95rem; }
-  select { padding: 8px; border-radius: 8px; border: 1px solid #8884; }
-  table { width: 100%; border-collapse: collapse; font-size: .88rem; }
-  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid #8883; }
-  th { position: sticky; top: 0; background: Canvas; cursor: default; }
+  input, select { padding: 8px 12px; border-radius: 8px; border: 1px solid #8884; font-size: .95rem; background: Canvas; color: inherit; }
+  input[type=search], input.grow { flex: 1; }
+  table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #8883; vertical-align: top; }
+  th { position: sticky; top: 0; background: Canvas; }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-  td.id { font-family: ui-monospace, monospace; font-size: .82rem; word-break: break-all; }
-  button { padding: 4px 12px; border-radius: 7px; border: 1px solid seagreen; background: transparent;
-           color: seagreen; cursor: pointer; }
-  button:hover { background: seagreen; color: white; }
+  td.id, .mono { font-family: ui-monospace, monospace; font-size: .82rem; word-break: break-all; }
+  button.act { padding: 4px 12px; border-radius: 7px; border: 1px solid seagreen; background: transparent; color: seagreen; cursor: pointer; }
+  button.act:hover { background: seagreen; color: white; }
   tr.active td { background: color-mix(in srgb, seagreen 10%, transparent); }
-  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: seagreen;
-           color: #fff; padding: 8px 18px; border-radius: 20px; opacity: 0; transition: opacity .3s; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; } .chip { padding: 2px 9px; border-radius: 12px; background: #8882; font-size: .8rem; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 10px; }
+  .kpi { text-align: center; padding: 10px; border-radius: 10px; border: 1px solid #8884; }
+  .kpi b { display: block; font-size: 1.5rem; color: seagreen; }
+  details summary { cursor: pointer; opacity: .7; font-size: .8rem; }
+  .tl { font-family: ui-monospace, monospace; font-size: .8rem; line-height: 1.7; white-space: pre-wrap; }
+  .ev-tool_call { color: #d08000; } .ev-tool_result { opacity: .6; } .ev-user_utterance { color: seagreen; }
+  .ev-greeting, .ev-hangup { opacity: .55; } .lat { color: #c04a6e; }
+  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: seagreen; color: #fff; padding: 8px 18px; border-radius: 20px; opacity: 0; transition: opacity .3s; }
 </style>
 </head>
 <body>
-<h1>🐳 AgentGuard Admin <span>· LLM 模型运行时切换（下一通电话即生效）</span></h1>
-<div id="current">当前模型：<b id="curModel">加载中…</b> <span id="fallback" style="opacity:.55"></span></div>
-<div class="bar">
-  <input type="search" id="q" placeholder="搜索模型 id / 名称，如 qwen、flash、deepseek…">
-  <select id="sort">
-    <option value="prompt_1m">按读价排序</option>
-    <option value="completion_1m">按写价排序</option>
-    <option value="context">按上下文排序</option>
-    <option value="id">按 id 排序</option>
-  </select>
+<h1>🐳 AgentGuard Admin</h1>
+<div class="tabs">
+  <button class="tab on" data-p="model">模型切换</button>
+  <button class="tab" data-p="visitor">访客查询</button>
+  <button class="tab" data-p="trace">通话 Trace</button>
 </div>
-<table>
-  <thead><tr><th>模型</th><th class="num">上下文</th><th class="num">读 $/1M</th><th class="num">写 $/1M</th><th></th></tr></thead>
-  <tbody id="rows"></tbody>
-</table>
+
+<!-- ===== 模型 ===== -->
+<div class="panel on" id="p-model">
+  <div class="card">当前模型：<b id="curModel" class="mono">…</b> <span id="fallback" style="opacity:.55"></span></div>
+  <div class="bar">
+    <input type="search" id="mq" class="grow" placeholder="搜索模型 id / 名称，如 qwen、flash…">
+    <select id="msort">
+      <option value="prompt_1m">按读价</option><option value="completion_1m">按写价</option>
+      <option value="context">按上下文</option><option value="id">按 id</option>
+    </select>
+  </div>
+  <table><thead><tr><th>模型</th><th class="num">上下文</th><th class="num">读$/1M</th><th class="num">写$/1M</th><th></th></tr></thead>
+    <tbody id="mrows"></tbody></table>
+</div>
+
+<!-- ===== 访客查询 ===== -->
+<div class="panel" id="p-visitor">
+  <div class="bar">
+    <input id="ask" class="grow" placeholder="问点啥：本周多少车？张师傅这个月来了几次？哪个时段最多？">
+    <button class="act" onclick="doAsk()">问</button>
+  </div>
+  <div class="card" id="askAns" style="display:none"></div>
+  <div id="stats" class="grid"></div>
+  <div class="bar"><input type="search" id="vq" class="grow" placeholder="按车牌/单位/称呼/手机号 搜索访问记录"></div>
+  <table><thead><tr><th>入场时间</th><th>车牌</th><th>单位</th><th>事由</th><th>称呼</th><th>手机</th></tr></thead>
+    <tbody id="vrows"></tbody></table>
+</div>
+
+<!-- ===== Trace ===== -->
+<div class="panel" id="p-trace">
+  <div class="bar"><select id="callsel" onchange="loadTrace(this.value)"><option>加载中…</option></select>
+    <button class="act" onclick="loadCalls()">刷新</button></div>
+  <div class="tl" id="tl">选择一通电话查看完整推理/行为 trace。</div>
+</div>
+
 <div id="toast"></div>
 <script>
-let models = [], current = "";
 const $ = id => document.getElementById(id);
+const esc = s => (s??"").toString().replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+function toast(m){const t=$("toast");t.textContent=m;t.style.opacity=1;setTimeout(()=>t.style.opacity=0,2600);}
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
+  document.querySelectorAll(".panel").forEach(x=>x.classList.remove("on"));
+  t.classList.add("on"); $("p-"+t.dataset.p).classList.add("on");
+  if (t.dataset.p==="visitor") loadStats();
+  if (t.dataset.p==="trace") loadCalls();
+});
 
-async function loadConfig() {
-  const c = await (await fetch("/api/config")).json();
-  current = c.model;
-  $("curModel").textContent = c.model;
-  $("fallback").textContent = "（.env 兜底：" + c.env_fallback + "）";
-}
-async function loadModels() {
-  models = (await (await fetch("/api/models")).json()).data;
-  render();
-}
-function render() {
-  const q = $("q").value.trim().toLowerCase();
-  const key = $("sort").value;
-  const list = models
-    .filter(m => !q || m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q))
-    .sort((a, b) => key === "id" ? a.id.localeCompare(b.id)
-                  : key === "context" ? b[key] - a[key] : a[key] - b[key])
-    .slice(0, 200);
-  $("rows").innerHTML = list.map(m => `
-    <tr class="${m.id === current ? "active" : ""}">
-      <td class="id">${m.id}<br><span style="opacity:.55">${m.name}</span></td>
-      <td class="num">${(m.context / 1000).toFixed(0)}k</td>
-      <td class="num">${m.prompt_1m.toFixed(2)}</td>
-      <td class="num">${m.completion_1m.toFixed(2)}</td>
-      <td>${m.id === current ? "✓ 使用中" : `<button onclick="pick('${m.id}')">启用</button>`}</td>
-    </tr>`).join("");
-}
-async function pick(id) {
-  const r = await fetch("/api/config", { method: "PUT",
-    headers: { "content-type": "application/json" }, body: JSON.stringify({ model: id }) });
-  if (!r.ok) { toast("❌ " + (await r.json()).detail); return; }
-  toast("✅ 已切换：" + id + "（下一通电话生效）");
-  await loadConfig(); render();
-}
-function toast(msg) {
-  const t = $("toast"); t.textContent = msg; t.style.opacity = 1;
-  setTimeout(() => t.style.opacity = 0, 2600);
-}
-$("q").addEventListener("input", render);
-$("sort").addEventListener("change", render);
-loadConfig().then(loadModels);
+/* ---- 模型 ---- */
+let models=[], current="";
+async function loadCfg(){const c=await(await fetch("/api/config")).json();current=c.model;$("curModel").textContent=c.model;$("fallback").textContent="（.env 兜底："+c.env_fallback+"）";}
+async function loadModels(){models=(await(await fetch("/api/models")).json()).data;renderModels();}
+function renderModels(){const q=$("mq").value.toLowerCase(),k=$("msort").value;
+  $("mrows").innerHTML=models.filter(m=>!q||m.id.toLowerCase().includes(q)||m.name.toLowerCase().includes(q))
+   .sort((a,b)=>k==="id"?a.id.localeCompare(b.id):k==="context"?b[k]-a[k]:a[k]-b[k]).slice(0,200)
+   .map(m=>`<tr class="${m.id===current?'active':''}"><td class="id">${esc(m.id)}<br><span style="opacity:.5">${esc(m.name)}</span></td>
+     <td class="num">${(m.context/1000).toFixed(0)}k</td><td class="num">${m.prompt_1m.toFixed(2)}</td><td class="num">${m.completion_1m.toFixed(2)}</td>
+     <td>${m.id===current?'✓ 使用中':`<button class="act" onclick="pick('${m.id}')">启用</button>`}</td></tr>`).join("");}
+async function pick(id){const r=await fetch("/api/config",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({model:id})});
+  if(!r.ok){toast("❌ "+(await r.json()).detail);return;}toast("✅ 已切换："+id);await loadCfg();renderModels();}
+$("mq").oninput=renderModels;$("msort").onchange=renderModels;
+
+/* ---- 访客查询 ---- */
+async function doAsk(){const q=$("ask").value.trim();if(!q)return;const box=$("askAns");box.style.display="block";box.innerHTML="思考中…";
+  const r=await fetch("/api/ask",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({question:q})});
+  const d=await r.json();
+  if(!r.ok){box.innerHTML="⚠️ "+esc(d.detail);return;}
+  box.innerHTML=`<b>💬 ${esc(d.answer)}</b><details><summary>查看生成的 SQL 与 ${d.rows.length} 行结果</summary>
+    <div class="mono" style="margin:6px 0">${esc(d.sql)}</div>
+    <div class="mono" style="opacity:.7">${esc(JSON.stringify(d.rows.slice(0,8)))}</div></details>`;}
+$("ask").addEventListener("keydown",e=>{if(e.key==="Enter")doAsk();});
+async function loadStats(){const s=await(await fetch("/api/stats")).json();
+  $("stats").innerHTML=`<div class="kpi"><b>${s.total}</b>累计访问</div><div class="kpi"><b>${s.this_week}</b>近7天</div>
+    <div class="kpi"><b style="font-size:1.1rem">${s.peak_hour||'-'}</b>峰值时段</div>
+    <div class="kpi"><b style="font-size:1rem">${esc((s.top_visitors[0]||{}).visitor_name||'-')}</b>回访之王 ${(s.top_visitors[0]||{}).visit_count||0}次</div>`;
+  loadVisits();}
+async function loadVisits(){const q=encodeURIComponent($("vq").value.trim());
+  const d=await(await fetch("/api/visits?limit=50&q="+q)).json();
+  $("vrows").innerHTML=d.visits.map(v=>`<tr><td class="mono">${esc((v.entered_at||'').replace('T',' ').slice(0,16))}</td>
+    <td class="mono">${esc(v.plate)}</td><td>${esc(v.company)}</td><td>${esc(v.purpose)}</td><td>${esc(v.visitor_name||'')}</td><td class="mono">${esc(v.phone)}</td></tr>`).join("")
+    ||'<tr><td colspan=6 style="opacity:.5">无记录</td></tr>';}
+$("vq").oninput=()=>{clearTimeout(window._vt);window._vt=setTimeout(loadVisits,250);};
+
+/* ---- Trace ---- */
+async function loadCalls(){const d=await(await fetch("/api/calls")).json();
+  $("callsel").innerHTML=d.calls.length?d.calls.map(c=>`<option value="${c.call_id}">${c.call_id} (${c.events}事件)</option>`).join(""):'<option>暂无 trace</option>';
+  if(d.calls.length)loadTrace(d.calls[0].call_id);}
+async function loadTrace(cid){if(!cid)return;const d=await(await fetch("/api/traces/"+cid)).json();
+  $("tl").innerHTML=d.trace.map(e=>{const lat=e.latency_ms?`<span class="lat">${e.latency_ms}ms</span> `:"";
+    const tool=e.tool_name?`[${esc(e.tool_name)}] `:"";const t=e.turn_index!=null?`t${e.turn_index}`:"  ";
+    return `<span class="ev-${e.event_type}">${t} ${e.event_type.padEnd(14)} ${tool}${lat}${esc((e.content||'').replace(/\n/g,' ').slice(0,90))}</span>`;}).join("\n");}
+
+loadCfg().then(loadModels);
 </script>
 </body>
 </html>

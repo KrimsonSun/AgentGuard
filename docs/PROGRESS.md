@@ -2,6 +2,16 @@
 
 > 倒序记录，每条含日期。实现阶段请顺手记录**用 AI 辅助编码的关键决策与审查点**（答辩要考）。
 
+## Day 1 · 2026-07-13（深夜 · 自主调试第二轮 · 回答用户 Q2/Q3）
+- **完整 trace/log 系统**（回答 Q2）：`app/trace.py` 双写 Neon `call_traces` + JSONL；
+  `experiments/trace_demo.py` 跑真实通话验证——17 事件完整时间线，每步 latency，5 次 LLM 累计 ~5.6s。
+- **console 三 tab**（回答 Q3）：模型切换 / 访客查询 / 通话 Trace。
+  新端点 visits(搜索)/stats(统计)/ask(门卫查询Agent NL→只读SQL)/traces(回放)。浏览器实测三 tab 全通。
+- **门卫查询 Agent**（加分项）实测：NL→SQL→作答，"张师傅这个月几次→6次送货"✅；恶意 DELETE 被只读护栏拦截✅。
+  修了一个误杀：LLM 尾分号被当多语句拦，改为先去尾分号。
+- **播种 16 条真实感演示数据** + 1 通真实 trace 通话（`seed_demo_data.py`/`reset_demo_data.py` 可控）。
+- 发现（Day2）：公司名归一化、时区（UTC 偏移）、NL"本周"口径——已记 HANDOFF §决策9。
+
 ## Day 1 · 2026-07-13（夜间 · Claude 自主调试）
 - **门卫大脑离线验证 + 候选模型对比**（`experiments/brain_test.py`，真实 OpenRouter 调用 + 真实写 Neon）：
   同一剧本跑 4 个快模型的完整工具调用循环。结果（详见 `experiments/README.md`）：

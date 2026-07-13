@@ -58,6 +58,21 @@ CREATE TABLE IF NOT EXISTS usage_ledger (
 );
 CREATE INDEX IF NOT EXISTS idx_ledger_call ON usage_ledger (call_id);
 
+-- ============ 通话 trace（可回放的完整推理/行为日志，独立于计费台账） ============
+CREATE TABLE IF NOT EXISTS call_traces (
+  id          BIGSERIAL PRIMARY KEY,
+  call_id     TEXT NOT NULL,
+  turn_index  INT,
+  event_type  TEXT NOT NULL,   -- greeting|user_utterance|llm_message|tool_call|tool_result|error|hangup
+  role        TEXT,            -- system|user|assistant|tool
+  content     TEXT,            -- 文本 / 工具参数json / 工具结果
+  tool_name   TEXT,
+  latency_ms  INT,             -- 该步耗时（LLM 调用等）
+  model       TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_traces_call ON call_traces (call_id, id);
+
 -- per-call 对账视图
 CREATE OR REPLACE VIEW call_cost_summary AS
 SELECT
