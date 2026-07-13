@@ -32,6 +32,13 @@ CREATE TABLE IF NOT EXISTS visitor_profiles (
 );
 CREATE INDEX IF NOT EXISTS idx_profiles_phone ON visitor_profiles (phone);
 
+-- ============ 运行时配置（admin console 写；agent 每通电话开始读一次，通话内固定） ============
+CREATE TABLE IF NOT EXISTS app_config (
+  key        TEXT PRIMARY KEY,        -- 如 'openrouter_model'
+  value      TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ============ token/成本台账（读/写分列，禁止事后估算） ============
 CREATE TABLE IF NOT EXISTS usage_ledger (
   id            BIGSERIAL PRIMARY KEY,

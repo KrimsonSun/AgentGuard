@@ -21,20 +21,23 @@ flowchart LR
 ## 部署步骤（本地）
 
 ```bash
-# 1. 依赖
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt          # LiveKit Agents 等
+# 1. 依赖（Python 3.11+）
+python3.13 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 
-# 2. 配置环境变量
-cp .env.example .env                      # 填入下方各项
+# 2. 配置环境变量（⚠️ 注释独立成行，勿写行内注释）
+cp .env.example .env
 
 # 3. 初始化数据库 (Neon)
 psql "$DATABASE_URL" -f db/schema.sql
 
-# 4. 启动门卫 Agent worker
-python -m app.agent                       # 连接 LiveKit，等待来电
+# 4. Admin Console：选择/切换 LLM 模型（运行时生效，下一通电话即用）
+uvicorn admin.server:app --port 8100      # → http://localhost:8100
 
-# 5. Twilio 号码 → SIP → LiveKit ingress 已配置后，拨打号码即可 demo
+# 5. 启动门卫 Agent worker（常驻，等待派单；接通即固定开场白秒回）
+python -m app.agent dev
+
+# 6. 呼入 demo：打开 WebRTC 通话链接即可对话（SIP/PSTN 生产接入见 docs/HANDOFF.md §决策3）
 ```
 
 > `requirements.txt` / `db/schema.sql` / `app/` 将在实现阶段落地，详见 [`docs/TODO.md`](docs/TODO.md)。

@@ -2,6 +2,16 @@
 
 > 倒序记录，每条含日期。实现阶段请顺手记录**用 AI 辅助编码的关键决策与审查点**（答辩要考）。
 
+## Day 1 · 2026-07-13
+- **Admin Console 上线**（`admin/`）：FastAPI + 单页前端，OpenRouter 341 个模型列表
+  （过滤 -1 价伪模型）/搜索/按价排序/一键切换；密钥只在服务端。冒烟测试三端点全通。
+- **运行时配置**：`app_config` 表 + `runtime_config.py`；每通电话读一次（不在接听路径），
+  通话内固定，下通即生效——由用户质疑"15s TTL 能秒接吗"推动砍掉 TTL，设计更简。
+- **秒接路径**：开场白改 `session.say(GREETING)` 固定文案直走 TTS，LLM 移出接听路径。
+- OpenRouter key 验证有效（345 模型可用）；venv 升 Python 3.13。
+- **坑**：`.env.example` 行内注释被当值读 → 已修（注释独立成行），user 的 .env 同步清理；
+  实际只有 OPENROUTER_API_KEY 有值，其余待填（DATABASE_URL/LIVEKIT/WECOM）。
+
 ## Day 0+ · 2026-07-13 凌晨
 - GitHub 公开仓库建立并推送：https://github.com/KrimsonSun/AgentGuard
 - **决策3 修订 v2**（呼入通道）：Twilio 注册摩擦 + 微信无实时通话 API（查证）→ 可插拔呼入边缘：

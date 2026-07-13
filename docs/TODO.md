@@ -35,6 +35,7 @@
 - [ ] 门卫查询 Agent：`query_stats()` NL→SQL（本周多少车 / 某人本月几次 / 峰值时段）
 - [ ] 图-lite 层：pgvector 语义索引（事由/公司别名模糊匹配）/ 可选 Apache AGE
 - [ ] token 对账：`usage_ledger` 读/写 token + STT/TTS 秒数 + 电话分钟；per-call 成本报告
+- [ ] Admin Console 扩展（可选）：成本看板 / 温度参数 / 提示词版本管理
 - [ ] Serverless：CF Workers（门卫查询 API）+ GitHub Actions CI/CD + Neon
 - [ ] 多路并发（多车同时拨打）
 - [ ] 企业微信双向：自建应用 + 回调，保安"点按钮放行"

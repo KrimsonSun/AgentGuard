@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentGuard Admin · 模型切换</title>
+<style>
+  :root { color-scheme: light dark; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  body { margin: 0 auto; max-width: 880px; padding: 24px 16px; }
+  h1 { font-size: 1.2rem; } h1 span { opacity: .5; font-weight: 400; font-size: .9rem; }
+  #current { padding: 10px 14px; border-radius: 10px; background: color-mix(in srgb, seagreen 14%, transparent);
+             border: 1px solid seagreen; margin: 12px 0; }
+  #current b { font-family: ui-monospace, monospace; }
+  .bar { display: flex; gap: 8px; margin: 12px 0; }
+  input[type=search] { flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid #8884; font-size: .95rem; }
+  select { padding: 8px; border-radius: 8px; border: 1px solid #8884; }
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid #8883; }
+  th { position: sticky; top: 0; background: Canvas; cursor: default; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.id { font-family: ui-monospace, monospace; font-size: .82rem; word-break: break-all; }
+  button { padding: 4px 12px; border-radius: 7px; border: 1px solid seagreen; background: transparent;
+           color: seagreen; cursor: pointer; }
+  button:hover { background: seagreen; color: white; }
+  tr.active td { background: color-mix(in srgb, seagreen 10%, transparent); }
+  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: seagreen;
+           color: #fff; padding: 8px 18px; border-radius: 20px; opacity: 0; transition: opacity .3s; }
+</style>
+</head>
+<body>
+<h1>🐳 AgentGuard Admin <span>· LLM 模型运行时切换（下一通电话即生效）</span></h1>
+<div id="current">当前模型：<b id="curModel">加载中…</b> <span id="fallback" style="opacity:.55"></span></div>
+<div class="bar">
+  <input type="search" id="q" placeholder="搜索模型 id / 名称，如 qwen、flash、deepseek…">
+  <select id="sort">
+    <option value="prompt_1m">按读价排序</option>
+    <option value="completion_1m">按写价排序</option>
+    <option value="context">按上下文排序</option>
+    <option value="id">按 id 排序</option>
+  </select>
+</div>
+<table>
+  <thead><tr><th>模型</th><th class="num">上下文</th><th class="num">读 $/1M</th><th class="num">写 $/1M</th><th></th></tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+<div id="toast"></div>
+<script>
+let models = [], current = "";
+const $ = id => document.getElementById(id);
+
+async function loadConfig() {
+  const c = await (await fetch("/api/config")).json();
+  current = c.model;
+  $("curModel").textContent = c.model;
+  $("fallback").textContent = "（.env 兜底：" + c.env_fallback + "）";
+}
+async function loadModels() {
+  models = (await (await fetch("/api/models")).json()).data;
+  render();
+}
+function render() {
+  const q = $("q").value.trim().toLowerCase();
+  const key = $("sort").value;
+  const list = models
+    .filter(m => !q || m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q))
+    .sort((a, b) => key === "id" ? a.id.localeCompare(b.id)
+                  : key === "context" ? b[key] - a[key] : a[key] - b[key])
+    .slice(0, 200);
+  $("rows").innerHTML = list.map(m => `
+    <tr class="${m.id === current ? "active" : ""}">
+      <td class="id">${m.id}<br><span style="opacity:.55">${m.name}</span></td>
+      <td class="num">${(m.context / 1000).toFixed(0)}k</td>
+      <td class="num">${m.prompt_1m.toFixed(2)}</td>
+      <td class="num">${m.completion_1m.toFixed(2)}</td>
+      <td>${m.id === current ? "✓ 使用中" : `<button onclick="pick('${m.id}')">启用</button>`}</td>
+    </tr>`).join("");
+}
+async function pick(id) {
+  const r = await fetch("/api/config", { method: "PUT",
+    headers: { "content-type": "application/json" }, body: JSON.stringify({ model: id }) });
+  if (!r.ok) { toast("❌ " + (await r.json()).detail); return; }
+  toast("✅ 已切换：" + id + "（下一通电话生效）");
+  await loadConfig(); render();
+}
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.style.opacity = 1;
+  setTimeout(() => t.style.opacity = 0, 2600);
+}
+$("q").addEventListener("input", render);
+$("sort").addEventListener("change", render);
+loadConfig().then(loadModels);
+</script>
+</body>
+</html>

@@ -16,9 +16,9 @@ from livekit.agents import Agent, AgentSession, JobContext, RunContext, function
 from livekit.plugins import openai as lk_openai
 from livekit.plugins import silero
 
-from . import ledger, memory, wecom
+from . import ledger, memory, runtime_config, wecom
 from .config import settings
-from .prompts import RETURNING_VISITOR_TEMPLATE, SYSTEM_PROMPT
+from .prompts import GREETING, RETURNING_VISITOR_TEMPLATE, SYSTEM_PROMPT
 from .slots import VisitSlots, normalize_phone, normalize_plate
 
 log = logging.getLogger("agentguard")
@@ -113,10 +113,13 @@ class GateAgent(Agent):
 async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
     gate = GateAgent()
+    # 每通电话读一次运行时配置（点查 ~20ms，与媒体建立并行，不在接听路径）；
+    # 通话内固定，admin console 切换后下一通即生效（HANDOFF §决策7）
+    model = await runtime_config.get_model()
 
     session = AgentSession(
         llm=lk_openai.LLM(
-            model=settings.openrouter_model,
+            model=model,
             base_url=settings.openrouter_base_url,  # → OpenRouter（OpenAI 兼容）
             api_key=settings.openrouter_api_key,
         ),
@@ -133,14 +136,14 @@ async def entrypoint(ctx: JobContext) -> None:
             gate.turn += 1
             import asyncio
             asyncio.create_task(ledger.record_llm(
-                gate.call_id, gate.turn, settings.openrouter_model,
+                gate.call_id, gate.turn, model,
                 m.prompt_tokens, m.completion_tokens,
                 getattr(m, "prompt_cached_tokens", 0) or 0,
             ))
 
     await session.start(agent=gate, room=ctx.room)
-    gate.connected_at = time.monotonic()  # Agent 开口 = 计时起点
-    await session.generate_reply()  # 触发开场白
+    gate.connected_at = time.monotonic()  # Agent 开口 = 25s 计时起点
+    session.say(GREETING)  # 固定开场白直走 TTS，LLM 不在接听路径（秒接）
 
     # 通话结束时打印对账（挂断回调里执行，[Day1] 校准挂断事件名）
     # summary = await ledger.call_summary(gate.call_id)

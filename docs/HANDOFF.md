@@ -107,6 +107,28 @@
 
 ---
 
+## 决策 7（2026-07-13）— 运行时配置 + Admin Console；模型哲学：快而非聪明
+
+**问题**：模型 id 硬编码 .env → 切换要改文件重启，没法快速实测对比。
+**选择**：Postgres `app_config` 表为配置事实源；`admin/`（FastAPI + 单页前端，`uvicorn admin.server:app --port 8100`）
+列出 OpenRouter 全部模型（价格/上下文，服务端代理，**前端不见密钥**）一键切换。
+**读取语义**：agent **每通电话开始读一次**（索引点查 ~20ms，与媒体建立并行，**不在接听路径**），
+通话内固定（prompt cache 命中 + 账单口径一致），下一通即生效。否决：TTL 缓存（多余）、改 env 重启（慢）。
+
+**秒接澄清（用户质疑推动）**：接听速度与配置读取无关。开场白是固定文案，接通后直接 `session.say()`
+走 TTS（可预合成缓存）——**LLM 不在接听路径上**。开口延迟 ≈ TTS 首包（几百 ms）。
+
+**模型哲学（用户校准："不需要 agent 太聪明"）**：任务是 slot 抽取 + 短句 + 工具调用 = 中等难度，flash 级足够。
+每轮响应间隙的瓶颈排序：**轮次数 >> 端点检测静音等待(300-700ms) > LLM TTFT(200-800ms) > TTS首包(100-300ms) > STT增量**。
+最大杠杆是对话设计（一次问多项→3轮）与 turn-detection 调优；console 的价值 = 用实测数据选"够用且最快"。
+候选：qwen3.5-flash / deepseek-v4-flash / gemini-2.5-flash-lite（Day2 实测定）。
+
+**坑记录（答辩素材）**：① `.env.example` 行内注释被 dotenv 读进值里 → 注释必须独立成行；
+② OpenRouter `openrouter/*` 动态路由伪模型价格为 -1，无固定单价无法对账 → console 已过滤；
+③ 系统 Python 3.9 过老，venv 用 Homebrew 3.13。
+
+---
+
 ## 未决项 / 待确认
 
 - [ ] 题目实际收到日（校准 Day 7 截止）——问对接人。
