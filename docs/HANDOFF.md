@@ -61,6 +61,10 @@
 **取舍**：用户在国内，Twilio 为已知量、最快拿到可跑 demo 的一通电话；接受它**非国内本地号**（答辩讲清）。**Day1 spike 优先消除此最高风险**。
 **fallback**：国内 SIP trunk / 阿里云语音（需实名/企业资质，保真度高但周期长）；或 SaaS 自带号码。
 
+**成本澄清（"为什么要买号"）**：接 PSTN 来电必须有一个电话号（DID）。但 Twilio **试用号几乎免费**（送试用额度，够 demo；仅有试用前置提示音），正式号也只 ~$1/月 + ~$0.0085/分钟。号本身不是成本问题，**中国可达性**才是。更便宜的同类：Telnyx / SignalWire（Twilio 兼容 API，更省）/ Plivo，媒体模型一样。demo 甚至可用 SIP 软电话/浏览器 WebRTC 呼入，完全不花号钱。
+
+**WhatsApp 方案评估（否决，答辩可讲）**：WhatsApp Business Calling API 2025 起可用、原则上能把来电经 SIP 路由到 AI 语音 agent，但对本场景是坏选择——① **场景不符**：司机在门口用手机拨号盘拨 PSTN 号，不是 WhatsApp 应用内呼叫（需双方都装 WhatsApp）；② **中国不可用**：WhatsApp 在大陆被墙，上海园区司机不会用；③ **门槛更高**：需 Meta 商业认证 + 业务号"每日 2000+ 消息额度"+ 开通通话权限；④ **仍需 SIP**：底层照样走 SIP trunk/webhook，没省掉媒体管道，反而多一层 Meta 审批。→ 既不省钱也不省事，且和"电话拨号 + 中国环境"不匹配。
+
 ---
 
 ## 决策 4 — 微信推送：企业微信群机器人 Webhook
@@ -75,7 +79,13 @@
 
 ## 决策 5 — Serverless：混合架构
 
-实时语音是长连接、有状态的媒体环路，**不适合无状态 Serverless**。媒体 worker 跑常驻主机（LiveKit Cloud / 便宜 VM）；OpenRouter(LLM)、Neon(DB)、企业微信 webhook、CF Workers(门卫查询)、GH Actions(CI/CD) 才是 Serverless 层。把这个"混合"讲清楚本身就是答辩素材。
+实时语音是长连接、有状态的媒体环路，**不适合无状态 Serverless**（CF Workers/Lambda 有执行时限、无持久媒体套接字）。媒体 worker 跑常驻主机；其余上 Serverless。
+
+**与题目加分组合的对齐**：题目建议的 serverless 例子是 `GitHub Actions CI/CD + Cloudflare Workers + OpenRouter + Neon PostgreSQL + Auth`。我们的选型**直接命中其中两项**——OpenRouter(LLM，serverless SaaS) + Neon(serverless Postgres)；再补 **CF Workers**（门卫查询 API）+ **GH Actions**（CI/CD）即可凑齐整套。所以 OpenRouter/Neon 不是随意选，是贴着评审给的组合走。
+
+**媒体这一块怎么尽量"serverless"**：用 **LiveKit Cloud** 托管媒体 + **托管 Agent 部署**（你把 agent 部署上去、由它常驻运行，你不管服务器），这是媒体组件最接近 serverless 的做法；或退而求其次跑一台便宜 VM。
+
+**结论**：可辩护的**混合架构**——能 serverless 的全 serverless（LLM/DB/查询API/CI/微信webhook），只有天然需要长连接的媒体用托管常驻。"为什么实时媒体不能纯 serverless、我们怎么处理"本身就是很强的答辩点。
 
 ---
 
