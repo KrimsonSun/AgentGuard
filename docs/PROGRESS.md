@@ -3,6 +3,9 @@
 > 倒序记录，每条含日期。实现阶段请顺手记录**用 AI 辅助编码的关键决策与审查点**（答辩要考）。
 
 ## Day 1 · 2026-07-13
+- **Neon 接通**：DATABASE_URL 写入 .env（gitignore 确认）；schema 应用成功——
+  4 表(visits/visitor_profiles/usage_ledger/app_config)+1 视图(call_cost_summary)+pgvector 启用。
+- **Admin Console 端到端验证**：PUT 启用模型 → 落 Neon app_config → GET/前端横幅读回，闭环成活。
 - **纠正决策8的 STT/TTS 收敛**（用户质疑延迟推动）：OpenRouter 音频端点是文件/批处理，
   会把转写/合成堆到关键路径（每轮 +几百ms~1s+），延迟不可接受。改回**专用流式 STT/TTS**（LiveKit 插件）；
   LLM 仍在 OpenRouter。对账靠 usage_ledger 分厂商记账，不损失。平台净 +1（理想选中文 ASR+TTS 一体厂商）。
