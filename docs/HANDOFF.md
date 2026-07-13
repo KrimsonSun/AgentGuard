@@ -3,11 +3,26 @@
 > 跨会话 / 交接 / 答辩的上下文承载文档。**每做一个关键技术决策就在此追加一条 ADR**，
 > 写清「选了什么 / 为什么 / 放弃了什么 / 代价」。这是 30 分钟技术答辩的弹药库。
 
-## 当前状态（截至 Day 0 · 2026-07-12）
+## 当前状态（截至 Day 1 · 2026-07-13）
 
-- ✅ 选型定稿、仓库建立（`~/Documents/Git/AgentGuard`）、harness 文档全套、Mermaid 架构图。
-- ⏳ 未开工：电话/媒体 spike、对话核心、记忆、微信推送、对账、报告。
-- 🔓 未决：STT/TTS 具体 provider、OpenRouter 模型、题目实际收到日、Figma 授权。
+- ✅ 选型定稿、公开仓库、harness 文档全套、Figma+Mermaid 架构图。
+- ✅ Neon 接通并建表；Admin Console（模型运行时切换）落库端到端验证通过。
+- ✅ 代码骨架：`app/`（单Agent + 记忆 + 台账 + 企微推送）、`admin/`、`db/schema.sql`。
+- ⏳ 进行中：Day1 语音回环 + STT/TTS 实测；对话大脑验证。
+- 🔓 未决：STT/TTS provider（Day1 实测选）、LiveKit Secret（待补）、企业微信（07-14 自建）。
+
+## 平台与环境（凭证一律在 `.env`，本仓库不含任何密文）
+
+| 平台 | 用途 | 状态 | 免费 |
+|---|---|---|---|
+| OpenRouter | LLM 大脑 | ✅ 有效 | 按量，全程 <$5 |
+| Neon Postgres | 记忆/台账/运行时配置 | ✅ 已接通建表 | ✅ 免费档 |
+| LiveKit Cloud | 实时媒体 + WebRTC 呼入 | ⚠️ 待补 API Secret | ✅ 免费档 |
+| 企业微信群机器人 | 保安推送 | ⬜ 待自建 | ✅ 免费 |
+| 中文流式 STT/TTS | 识别/合成 | ⬜ Day1 实测选 | 按量 |
+| CF Workers / GH Actions | 门卫查询API / CI（加分） | ⬜ Day6 | ✅ 公开仓库免费 |
+
+> 环境变量清单见 `.env.example`；私密凭证与账号交接见 repo 外的 `~/Documents/Git/Yijun/`。
 
 ---
 

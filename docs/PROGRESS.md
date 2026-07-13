@@ -2,6 +2,17 @@
 
 > 倒序记录，每条含日期。实现阶段请顺手记录**用 AI 辅助编码的关键决策与审查点**（答辩要考）。
 
+## Day 1 · 2026-07-13（夜间 · Claude 自主调试）
+- **门卫大脑离线验证 + 候选模型对比**（`experiments/brain_test.py`，真实 OpenRouter 调用 + 真实写 Neon）：
+  同一剧本跑 4 个快模型的完整工具调用循环。结果（详见 `experiments/README.md`）：
+  - 🏆 **google/gemini-2.5-flash-lite**：首字 0.74s / 4 轮 / 读2453写138 / 收齐✅ → 设为默认（写入 app_config）
+  - glm-4.7-flash：更快但**漏手机号硬收尾**（幻觉，正确性红旗，淘汰）；qwen 对但 6 轮偏慢；deepseek 首字 5.69s 太慢
+  - **验证通过**：prompts/slots/memory.save_visit/ledger.record_llm 全链路真跑；对账视图正确回读读/写 token
+  - 测试数据已从 Neon 清理（visits/usage_ledger/profiles 归零）
+- **发现**：单场景不足 → Day2 加难例（模糊车牌/纠错/一句全给/听不清）；系统提示未缓存致读 token 偏高 → 开 prompt cache 降本。
+- **LiveKit**：写入 URL + API Key（`APIimfqYXNGVED8` 待用户核对），**缺 API Secret**（用户 07-14 补）。
+- **私密交接**：`~/Documents/Git/Yijun/`（repo 外）存含凭证的 handoff；公开 repo 文档只列平台不含密文。
+
 ## Day 1 · 2026-07-13
 - **Neon 接通**：DATABASE_URL 写入 .env（gitignore 确认）；schema 应用成功——
   4 表(visits/visitor_profiles/usage_ledger/app_config)+1 视图(call_cost_summary)+pgvector 启用。

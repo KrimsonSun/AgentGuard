@@ -11,9 +11,11 @@
 
 ## 🟢 MVP 必须
 ### 对话核心（单 Agent）
-- [ ] 系统提示：真人门卫口吻、一次问多字段、简洁自然（对齐"3 轮 15s"正例）
-- [ ] slot 填充状态机：车牌/单位/手机号/事由（入场时间自动）
-- [ ] LLM 大脑经 OpenRouter 接入（function calling）
+- [x] 系统提示：真人门卫口吻、一次问多字段、简洁自然（对齐"3 轮 15s"正例）— 离线验证通过
+- [x] slot 填充状态机：车牌/单位/手机号/事由（入场时间自动）— slots.py + 校验
+- [x] LLM 大脑经 OpenRouter 接入（function calling）— 4 模型实测，选定 gemini-2.5-flash-lite
+- [ ] Day2 难例回归：模糊车牌 / 纠错("不是A是B") / 一句话全给 / 听不清重问
+- [ ] 开 prompt cache 降读 token；成本列接 usage.include
 - [ ] turn detection / barge-in，压端到端延迟 < 25s
 - [ ] 工具：`save_visit()` `notify_guard()`
 
