@@ -17,7 +17,9 @@ flowchart TD
     B1 --> B3{"模型选型 §7"}
     B3 -->|数据选| B3a["gemini-2.5-flash-lite<br/>brain_test 0.74s/4轮/收齐"]:::pick
     B3 -.否.-> B3b["deepseek 慢 · glm 幻觉 · qwen 轮次多"]:::drop
-    B3a --> B4["运行时切换 app_config + console<br/>快而非聪明"]:::pick
+    B3a -->|"真机工具不稳→数据重选 §16"| B3c["gpt-4o-mini<br/>3/3可靠·0.99s·最便宜(胜3.1flash-lite/2.5flash)"]:::pick
+    B3c --> B4["运行时切换 app_config + console<br/>快而非聪明"]:::pick
+    B3c -.->|"生产硬化"| B6["C: 代理内受控工具循环<br/>tool_choice强制·可靠性与模型脱钩 §16"]:::note
 
     %% ---- 语音处理 ----
     ROOT --> V{"语音链路 §2"}
