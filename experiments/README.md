@@ -16,6 +16,23 @@
 
 **决策**：默认模型 = `google/gemini-2.5-flash-lite`（已写入 Neon `app_config`，可在 admin console 改）。
 
+## STT/TTS 中文实测 bench（`stt_tts_bench.py`，2026-07-13）
+
+可插拔 provider（有 key 才跑）；重点评车牌/手机号（门卫场景最易错）。今晚基线用 macOS `say` 合成音频 + OpenRouter voxtral。
+
+| provider | 均延迟 | 均准确 | 车牌 | 手机 |
+|---|---|---|---|---|
+| openrouter/voxtral（批处理基线） | 1006ms | 45% | 0/2 ❌ | 1/1 ✅ |
+
+**读数（都是有用信号）**：
+1. **车牌是最难的**：voxtral 把"沪A12345"听成"12345"、"沪B88888"听成"B88888"——省份简称+字母最易丢。门卫场景车牌是主键，这项必须过关 → 需要**流式+中文强**的 ASR，且可能要加车牌纠错/受限词表。
+2. **手机号 OK**：11 位数字准确转出。
+3. **再次印证决策8**：批处理 voxtral 又慢又差，生产必须用专用流式 ASR。
+4. **合成音频偏乐观**：`say` 语音干净，真实电话噪声下更低；且合成车牌读法不自然 → 真实对比要用**真人录音或高质量 TTS 音频**。
+
+**下一步（key 到位）**：优先补 **火山引擎 volcengine**（一账号 STT+TTS、官方 livekit 插件、中文原生）；对比 Deepgram/Cartesia。
+TTS 比 **首字节延迟(TTFB)**（语音体验关键）。骨架已在 `stt_tts_bench.py` 的 STT_PROVIDERS/PROVIDERS。
+
 ## 发现 / 待办
 
 1. **正确性 > 速度**：glm 更快但幻觉收尾（漏项硬收），实测才抓得到 → Day2 加**难例**：

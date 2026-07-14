@@ -1,0 +1,8 @@
+{
+  "openrouter/voxtral": {
+    "avg_acc": 0.452,
+    "avg_ms": 1006,
+    "plate_ok": "0/2",
+    "phone_ok": "1/1"
+  }
+}
