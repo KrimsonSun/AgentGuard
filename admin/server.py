@@ -35,7 +35,15 @@ def require_auth(cred: HTTPBasicCredentials = Depends(_basic)) -> str:
 # 全局依赖：所有路由（含首页 HTML）都要过认证
 app = FastAPI(title="AgentGuard Admin", dependencies=[Depends(require_auth)])
 STATIC = Path(__file__).parent / "static"
-_oai = AsyncOpenAI(api_key=settings.openrouter_api_key, base_url=settings.openrouter_base_url)
+_oai_client: AsyncOpenAI | None = None
+
+
+def _oai() -> AsyncOpenAI:
+    """惰性创建 OpenRouter 客户端：import 时不碰凭证（CI / 无 .env 也能安全 import）。"""
+    global _oai_client
+    if _oai_client is None:
+        _oai_client = AsyncOpenAI(api_key=settings.openrouter_api_key, base_url=settings.openrouter_base_url)
+    return _oai_client
 
 # /models 结果 5 分钟缓存：345+ 个模型的列表没必要每次刷新都打 OpenRouter
 _models_cache: tuple[float, list[dict]] | None = None
@@ -165,7 +173,7 @@ async def ask(a: Ask) -> dict:
     """门卫查询 Agent：自然语言 → 只读 SQL → 执行 → 自然语言作答。加分项。"""
     model = await runtime_config.get_model()
     # 1) NL → SQL
-    gen = await _oai.chat.completions.create(
+    gen = await _oai().chat.completions.create(
         model=model, temperature=0,
         messages=[
             {"role": "system", "content":
@@ -190,7 +198,7 @@ async def ask(a: Ask) -> dict:
     except Exception as exc:
         raise HTTPException(400, f"查询执行失败：{str(exc)[:200]}\nSQL: {sql[:200]}")
     # 4) 结果 → 自然语言
-    ans = await _oai.chat.completions.create(
+    ans = await _oai().chat.completions.create(
         model=model, temperature=0.2,
         messages=[
             {"role": "system", "content": "根据查询结果，用一句简洁中文回答保安的问题。"},
@@ -297,7 +305,7 @@ async def chat(req: ChatReq) -> dict:
                 msgs.append({"role": "tool", "tool_call_id": tc["id"], "content": content})
 
     for _ in range(8):
-        r = await _oai.chat.completions.create(model=model, temperature=0.2, messages=msgs,
+        r = await _oai().chat.completions.create(model=model, temperature=0.2, messages=msgs,
                                                tools=_CHAT_TOOLS, parallel_tool_calls=False)
         m = r.choices[0].message
         msgs.append(m.model_dump(exclude_none=True))
