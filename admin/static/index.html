@@ -35,6 +35,14 @@
   .ev-tool_call { color: #d08000; } .ev-tool_result { opacity: .6; } .ev-user_utterance { color: seagreen; }
   .ev-greeting, .ev-hangup { opacity: .55; } .lat { color: #c04a6e; }
   #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: seagreen; color: #fff; padding: 8px 18px; border-radius: 20px; opacity: 0; transition: opacity .3s; }
+  #chatlog { min-height: 240px; max-height: 55vh; overflow-y: auto; padding: 6px 2px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 82%; padding: 9px 13px; border-radius: 12px; font-size: .92rem; line-height: 1.5; white-space: pre-wrap; }
+  .msg.u { align-self: flex-end; background: seagreen; color: #fff; border-bottom-right-radius: 3px; }
+  .msg.a { align-self: flex-start; background: #8882; border-bottom-left-radius: 3px; }
+  .confirm { align-self: flex-start; max-width: 82%; padding: 11px 14px; border-radius: 12px; border: 1px solid #e8a302; background: color-mix(in srgb, #e8a302 14%, transparent); }
+  .confirm .btns { display: flex; gap: 8px; margin-top: 9px; }
+  .confirm button { padding: 5px 16px; border-radius: 7px; border: none; cursor: pointer; font-size: .9rem; }
+  .confirm .yes { background: seagreen; color: #fff; } .confirm .no { background: #8883; color: inherit; }
 </style>
 </head>
 <body>
@@ -42,6 +50,7 @@
 <div class="tabs">
   <button class="tab on" data-p="model">模型切换</button>
   <button class="tab" data-p="visitor">访客查询</button>
+  <button class="tab" data-p="chat">🐳 门卫台</button>
   <button class="tab" data-p="trace">通话 Trace</button>
 </div>
 
@@ -70,6 +79,16 @@
   <div class="bar"><input type="search" id="vq" class="grow" placeholder="按车牌/单位/称呼/手机号 搜索访问记录"></div>
   <table><thead><tr><th>入场时间</th><th>车牌</th><th>单位</th><th>事由</th><th>称呼</th><th>手机</th></tr></thead>
     <tbody id="vrows"></tbody></table>
+</div>
+
+<!-- ===== 门卫台 ===== -->
+<div class="panel" id="p-chat">
+  <div id="chatlog"><div class="msg a">您好，我是门卫台助手 🐳 可以问我「张师傅这个月来了几次」，也能让我改访客信息、合并被车牌听花拆开的同一个人（改动会先请您确认再落库）。</div></div>
+  <div class="bar">
+    <input id="chatin" class="grow" placeholder="对话式查询/维护：张师傅来了几次？ / 把 #1 手机改成… / 合并重复的张师傅">
+    <button class="act" onclick="chatSend()">发送</button>
+  </div>
+  <div style="opacity:.5;font-size:.8rem">读操作即时执行；改 / 合并会先弹确认再落库（HITL 人工闸门）。</div>
 </div>
 
 <!-- ===== Trace ===== -->
@@ -135,6 +154,39 @@ async function loadTrace(cid){if(!cid)return;const d=await(await fetch("/api/tra
   $("tl").innerHTML=d.trace.map(e=>{const lat=e.latency_ms?`<span class="lat">${e.latency_ms}ms</span> `:"";
     const tool=e.tool_name?`[${esc(e.tool_name)}] `:"";const t=e.turn_index!=null?`t${e.turn_index}`:"  ";
     return `<span class="ev-${e.event_type}">${t} ${e.event_type.padEnd(14)} ${tool}${lat}${esc((e.content||'').replace(/\n/g,' ').slice(0,90))}</span>`;}).join("\n");}
+
+/* ---- 门卫台（多轮 + HITL 确认）---- */
+let chatMsgs = [], chatBusy = false;
+function renderChat(pending){
+  const log = $("chatlog");
+  let html = chatMsgs.filter(m => (m.role==="user"||m.role==="assistant") && m.content)
+    .map(m => `<div class="msg ${m.role==="user"?"u":"a"}">${esc(m.content)}</div>`).join("");
+  if (pending) html += `<div class="confirm"><b>⚠️ 待确认写操作</b><br>${esc(pending.summary)}
+    <div class="btns"><button class="yes" onclick="chatConfirm(true)">确认执行</button>
+    <button class="no" onclick="chatConfirm(false)">取消</button></div></div>`;
+  log.innerHTML = html; log.scrollTop = log.scrollHeight;
+}
+async function chatPost(body){
+  chatBusy = true;
+  try {
+    const r = await fetch("/api/chat",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+    const d = await r.json();
+    if(!r.ok){ toast("❌ "+(d.detail||"出错")); return; }
+    chatMsgs = d.messages;
+    renderChat(d.type==="confirm" ? d.action : null);
+  } finally { chatBusy = false; }
+}
+async function chatSend(){
+  if(chatBusy) return;
+  const q = $("chatin").value.trim(); if(!q) return;
+  $("chatin").value = "";
+  chatMsgs.push({role:"user", content:q});
+  renderChat(null);
+  $("chatlog").insertAdjacentHTML("beforeend",'<div class="msg a" style="opacity:.5">…</div>'); $("chatlog").scrollTop=1e9;
+  await chatPost({messages: chatMsgs});
+}
+async function chatConfirm(ok){ if(chatBusy) return; await chatPost({messages: chatMsgs, confirm: ok}); }
+$("chatin").addEventListener("keydown",e=>{if(e.key==="Enter")chatSend();});
 
 loadCfg().then(loadModels);
 </script>

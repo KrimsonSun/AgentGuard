@@ -3,6 +3,7 @@
 启动（仓库根目录）：uvicorn admin.server:app --port 8100  →  http://localhost:8100
 安全边界：OPENROUTER_API_KEY 只在服务端使用，前端永远看不到；本服务只应跑在本机/内网。
 """
+import json
 import re
 import secrets
 import time
@@ -200,3 +201,106 @@ async def recent_calls() -> dict:
 @app.get("/api/traces/{call_id}")
 async def get_call_trace(call_id: str) -> dict:
     return {"call_id": call_id, "trace": await trace.get_trace(call_id)}
+
+
+# ============ 对话式门卫台（多轮 Agent：读工具即时执行 / 写工具走 HITL 确认）============
+
+_CHAT_TOOLS = [
+    {"type": "function", "function": {
+        "name": "run_sql", "description": "执行一条只读 PostgreSQL SELECT，用于统计/明细类问题。",
+        "parameters": {"type": "object", "properties": {
+            "sql": {"type": "string", "description": "一条 SELECT 语句"}}, "required": ["sql"]}}},
+    {"type": "function", "function": {
+        "name": "find_visitors", "description": "按姓名/手机/车牌查找候选访客，用于消歧（如多个张师傅）。任一条件可空。",
+        "parameters": {"type": "object", "properties": {
+            "name": {"type": "string"}, "phone": {"type": "string"}, "plate": {"type": "string"}}}}},
+    {"type": "function", "function": {
+        "name": "update_visitor", "description": "更新某访客信息（手机/称呼/常访单位/常访事由）。写操作，需人工确认。",
+        "parameters": {"type": "object", "properties": {
+            "visitor_id": {"type": "integer"}, "visitor_name": {"type": "string"}, "phone": {"type": "string"},
+            "usual_company": {"type": "string"}, "usual_purpose": {"type": "string"}}, "required": ["visitor_id"]}}},
+    {"type": "function", "function": {
+        "name": "merge_visitors", "description": "把实为同一人的两条访客合并（keep_id 保留，merge_id 并入）。写操作，需人工确认。",
+        "parameters": {"type": "object", "properties": {
+            "keep_id": {"type": "integer"}, "merge_id": {"type": "integer"}}, "required": ["keep_id", "merge_id"]}}},
+]
+_WRITE_TOOLS = {"update_visitor", "merge_visitors"}
+_CHAT_SYS = (
+    "你是门卫台助手，帮保安查询和维护访客库。"
+    "查询：统计/明细用 run_sql（只读 SELECT）；找某个人用 find_visitors（姓名/手机/车牌）。"
+    "维护：改信息用 update_visitor；把因车牌听花被拆成多条的同一人合并用 merge_visitors。"
+    "关键规矩：指代不明（如有多个『张师傅』）必须先 find_visitors 列候选，用手机/车牌帮保安区分并反问『是哪一位』，绝不自己瞎猜挑一个。"
+    "写操作（update/merge）执行前系统会弹人工确认，你正常调用即可。回答简洁中文。" + _SCHEMA_HINT
+)
+
+
+async def _chat_exec(name: str, args: dict):
+    if name == "run_sql":
+        sql = (args.get("sql") or "").strip().rstrip(";").strip()
+        if not sql.lower().startswith("select") or _FORBIDDEN.search(sql):
+            return {"error": f"只读校验未通过: {sql[:120]}"}
+        if "limit" not in sql.lower():
+            sql += " LIMIT 100"
+        async with (await memory.pool()).acquire() as conn:
+            async with conn.transaction(readonly=True):
+                await conn.execute("SET LOCAL statement_timeout = '4s'")
+                return [dict(r) for r in await conn.fetch(sql)]
+    if name == "find_visitors":
+        return await memory.find_candidates(args.get("name", ""), args.get("phone", ""), args.get("plate", ""))
+    if name == "update_visitor":
+        return await memory.update_visitor(int(args["visitor_id"]), args.get("visitor_name"),
+                                           args.get("phone"), args.get("usual_company"), args.get("usual_purpose"))
+    if name == "merge_visitors":
+        return await memory.merge_visitors(int(args["keep_id"]), int(args["merge_id"]))
+    return {"error": f"未知工具 {name}"}
+
+
+def _summarize_write(name: str, args: dict) -> str:
+    if name == "update_visitor":
+        chg = "、".join(f"{k}={v}" for k, v in args.items() if k != "visitor_id" and v)
+        return f"更新访客 #{args.get('visitor_id')} 的信息：{chg}"
+    return (f"把访客 #{args.get('merge_id')} 合并进 #{args.get('keep_id')}"
+            "（次数累加、车辆与访问记录归并、删除被合并者）")
+
+
+class ChatReq(BaseModel):
+    messages: list[dict]
+    confirm: bool | None = None      # 上一轮写操作的人工确认结果
+
+
+@app.post("/api/chat")
+async def chat(req: ChatReq) -> dict:
+    """多轮门卫台。返回 type=message（有答复）或 type=confirm（待确认写操作）。前端持久化 messages。"""
+    model = await runtime_config.get_model()
+    msgs = list(req.messages)
+    if not msgs or msgs[0].get("role") != "system":
+        msgs = [{"role": "system", "content": _CHAT_SYS}] + msgs
+
+    # 带 confirm：解决上一条 assistant 里待确认的写工具调用
+    if req.confirm is not None and msgs and msgs[-1].get("tool_calls"):
+        for tc in msgs[-1]["tool_calls"]:
+            if tc["function"]["name"] in _WRITE_TOOLS:
+                if req.confirm:
+                    res = await _chat_exec(tc["function"]["name"], json.loads(tc["function"].get("arguments") or "{}"))
+                    content = json.dumps({"ok": True, "result": res}, default=str, ensure_ascii=False)
+                else:
+                    content = json.dumps({"ok": False, "cancelled": "保安取消了此操作"}, ensure_ascii=False)
+                msgs.append({"role": "tool", "tool_call_id": tc["id"], "content": content})
+
+    for _ in range(8):
+        r = await _oai.chat.completions.create(model=model, temperature=0.2, messages=msgs,
+                                               tools=_CHAT_TOOLS, parallel_tool_calls=False)
+        m = r.choices[0].message
+        msgs.append(m.model_dump(exclude_none=True))
+        if not m.tool_calls:
+            return {"type": "message", "content": m.content or "", "messages": msgs}
+        tc = m.tool_calls[0]
+        fn = tc.function.name
+        args = json.loads(tc.function.arguments or "{}")
+        if fn in _WRITE_TOOLS:                         # 写操作 → 暂停，等前端人工确认
+            return {"type": "confirm", "messages": msgs,
+                    "action": {"name": fn, "args": args, "summary": _summarize_write(fn, args)}}
+        res = await _chat_exec(fn, args)               # 读操作 → 即时执行
+        msgs.append({"role": "tool", "tool_call_id": tc.id,
+                     "content": json.dumps(res, default=str, ensure_ascii=False)})
+    return {"type": "message", "content": "（达到最大步数，请简化问题重试）", "messages": msgs}

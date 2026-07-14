@@ -78,3 +78,73 @@ async def save_visit(call_id: str, s: VisitSlots) -> int:
             call_id, visitor_id, s.plate, s.company, s.phone, s.purpose, s.visitor_name,
         )
     return visit_id
+
+
+# ============ 门卫台 Agent 用的读/写操作（改+合并，写操作在端点层走 HITL 确认）============
+
+async def find_candidates(name: str = "", phone: str = "", plate: str = "") -> list[dict]:
+    """按 姓名/手机/车牌 找候选访客（用于消歧“是哪个张师傅”）。任一条件命中即返回，带名下车牌。"""
+    conds, args = [], []
+    if name:
+        args.append(f"%{name}%"); conds.append(f"v.visitor_name ILIKE ${len(args)}")
+    if phone:
+        args.append(f"%{phone}%"); conds.append(f"v.phone LIKE ${len(args)}")
+    if plate:
+        args.append(f"%{plate}%")
+        conds.append(f"EXISTS (SELECT 1 FROM vehicles ve WHERE ve.visitor_id=v.id AND ve.plate ILIKE ${len(args)})")
+    if not conds:
+        return []
+    sql = f"""SELECT v.id, v.phone, v.visitor_name, v.usual_company, v.usual_purpose,
+                     v.visit_count, v.last_visit_at,
+                     COALESCE((SELECT string_agg(plate, '、' ORDER BY last_seen DESC)
+                               FROM vehicles WHERE visitor_id=v.id), '') AS plates
+              FROM visitors v WHERE {' OR '.join(conds)}
+              ORDER BY v.last_visit_at DESC NULLS LAST LIMIT 20"""
+    rows = await (await pool()).fetch(sql, *args)
+    return [dict(r) for r in rows]
+
+
+async def update_visitor(visitor_id: int, visitor_name: str | None = None, phone: str | None = None,
+                         usual_company: str | None = None, usual_purpose: str | None = None) -> dict | None:
+    """更新访客信息（只改传入的非空字段）。返回更新后的行。"""
+    fields = {"visitor_name": visitor_name, "phone": phone,
+              "usual_company": usual_company, "usual_purpose": usual_purpose}
+    sets, args = [], []
+    for k, val in fields.items():
+        if val is not None:
+            args.append(val); sets.append(f"{k} = ${len(args)}")
+    if not sets:
+        return None
+    args.append(visitor_id)
+    sql = f"UPDATE visitors SET {', '.join(sets)} WHERE id = ${len(args)} RETURNING *"
+    row = await (await pool()).fetchrow(sql, *args)
+    return dict(row) if row else None
+
+
+async def merge_visitors(keep_id: int, merge_id: int) -> dict | None:
+    """把 merge_id 合并进 keep_id（治车牌听花的重复画像）：车辆/访问归到 keep，次数累加，删被合并者。"""
+    if keep_id == merge_id:
+        return None
+    p = await pool()
+    async with p.acquire() as conn, conn.transaction():
+        # 删掉 merge 名下、keep 已有的重复车牌，避免 UNIQUE(visitor_id,plate) 冲突
+        await conn.execute(
+            """DELETE FROM vehicles m WHERE m.visitor_id = $2
+               AND EXISTS (SELECT 1 FROM vehicles k WHERE k.visitor_id = $1 AND k.plate = m.plate)""",
+            keep_id, merge_id)
+        # 其余车辆 + 全部访问记录 归到 keep
+        await conn.execute("UPDATE vehicles SET visitor_id = $1 WHERE visitor_id = $2", keep_id, merge_id)
+        await conn.execute("UPDATE visits SET visitor_id = $1 WHERE visitor_id = $2", keep_id, merge_id)
+        # 次数累加 + 取更近的最近来访 + 补全 keep 的空字段
+        await conn.execute(
+            """UPDATE visitors k SET
+                 visit_count   = k.visit_count + m.visit_count,
+                 last_visit_at = GREATEST(k.last_visit_at, m.last_visit_at),
+                 visitor_name  = COALESCE(k.visitor_name, m.visitor_name),
+                 usual_company = COALESCE(k.usual_company, m.usual_company),
+                 usual_purpose = COALESCE(k.usual_purpose, m.usual_purpose)
+               FROM visitors m WHERE k.id = $1 AND m.id = $2""",
+            keep_id, merge_id)
+        await conn.execute("DELETE FROM visitors WHERE id = $1", merge_id)
+        row = await conn.fetchrow("SELECT * FROM visitors WHERE id = $1", keep_id)
+    return dict(row) if row else None
