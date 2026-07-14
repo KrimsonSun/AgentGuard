@@ -17,7 +17,8 @@ load_dotenv(pathlib.Path(__file__).resolve().parent.parent / ".env")
 
 API_KEY = os.getenv("VAPI_API_KEY", "")
 TOOLS_URL = os.getenv("VAPI_TOOLS_URL", "").rstrip("/")
-OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY", "")
+# 浏览器 UA：绕过 Vapi 前置 Cloudflare 对 python UA 的 1010 拦截
+UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/125.0 Safari/537.36"
 
 
 def build_config() -> dict:
@@ -25,9 +26,8 @@ def build_config() -> dict:
     raw = raw.replace("<VAPI_TOOLS_URL>", TOOLS_URL)
     cfg = json.loads(raw)
     cfg.pop("_comment", None)
-    # custom-llm 用 OpenRouter，需带鉴权（Vapi 通过 credential/header 传给 url）
-    cfg["model"]["credentialId"] = None
-    cfg["model"]["apiKey"] = OPENROUTER_KEY  # 部分版本字段名不同，联调时按 Vapi 文档校准
+    # 无需在 Vapi 存 OpenRouter 凭证：model.url 指向我们后端的 /vapi 透明代理，
+    # 代理注入 OpenRouter key（见 tools_server.py /vapi/chat/completions）。
     return cfg
 
 
@@ -36,7 +36,7 @@ def main() -> None:
     assert TOOLS_URL, "缺 VAPI_TOOLS_URL（cloudflared/ngrok 隧道到 tools_server 的公网 URL）"
     cfg = build_config()
     r = httpx.post("https://api.vapi.ai/assistant",
-                   headers={"Authorization": f"Bearer {API_KEY}"}, json=cfg, timeout=30)
+                   headers={"Authorization": f"Bearer {API_KEY}", "User-Agent": UA}, json=cfg, timeout=30)
     if r.status_code >= 300:
         print("❌ 创建失败：", r.status_code, r.text[:500]); return
     a = r.json()

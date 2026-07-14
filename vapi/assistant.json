@@ -5,7 +5,7 @@
   "firstMessageMode": "assistant-speaks-first",
   "model": {
     "provider": "custom-llm",
-    "url": "https://openrouter.ai/api/v1",
+    "url": "<VAPI_TOOLS_URL>/vapi",
     "model": "google/gemini-2.5-flash-lite",
     "temperature": 0.3,
     "messages": [

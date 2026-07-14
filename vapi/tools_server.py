@@ -13,9 +13,12 @@ Vapi 需公网可达 → 本地用隧道：cloudflared tunnel --url http://local
 import json
 import logging
 
-from fastapi import FastAPI, Request
+import httpx
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import StreamingResponse
 
 from app import memory, trace
+from app.config import settings
 from app.slots import VisitSlots, normalize_phone, normalize_plate
 from app.wecom import notify_guard as wecom_notify
 
@@ -127,3 +130,27 @@ async def vapi_events(req: Request) -> dict:
 @app.get("/health")
 async def health() -> dict:
     return {"ok": True, "active_calls": len(_SLOTS)}
+
+
+# ---------- custom-LLM 透明代理：Vapi 的 LLM 打这里，我们注入 OpenRouter key ----------
+# 好处：Vapi 无需持有 OpenRouter 凭证；所有 key 与 token 对账都留在我们后端。
+# Vapi assistant 的 model.url 设为 <VAPI_TOOLS_URL>/vapi → Vapi 调 {url}/chat/completions。
+_OR = "https://openrouter.ai/api/v1/chat/completions"
+
+
+@app.post("/vapi/chat/completions")
+async def proxy_llm(req: Request):
+    body = await req.body()
+    headers = {"Authorization": f"Bearer {settings.openrouter_api_key}",
+               "Content-Type": "application/json"}
+    is_stream = b'"stream":true' in body.replace(b" ", b"")
+    if is_stream:
+        async def gen():
+            async with httpx.AsyncClient(timeout=120) as c:
+                async with c.stream("POST", _OR, headers=headers, content=body) as r:
+                    async for chunk in r.aiter_raw():
+                        yield chunk
+        return StreamingResponse(gen(), media_type="text/event-stream")
+    async with httpx.AsyncClient(timeout=120) as c:
+        r = await c.post(_OR, headers=headers, content=body)
+    return Response(content=r.content, status_code=r.status_code, media_type="application/json")
