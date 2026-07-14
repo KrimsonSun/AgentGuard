@@ -4,6 +4,9 @@ name: CI/CD
 on:
   push:
     branches: [main]
+    paths-ignore:            # 纯文档改动不触发 test/deploy（避免白部署一次）
+      - '**.md'
+      - 'docs/**'
   pull_request:
     branches: [main]
 
