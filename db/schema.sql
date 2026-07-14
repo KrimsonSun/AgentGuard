@@ -101,3 +101,19 @@ SELECT
   SUM(cost)               AS total_cost
 FROM usage_ledger
 GROUP BY call_id;
+
+-- ============ 门卫台鉴权（无密码 TOTP 2FA + 服务端会话）============
+CREATE TABLE IF NOT EXISTS admin_users (
+  username    TEXT PRIMARY KEY,
+  totp_secret TEXT NOT NULL,
+  role        TEXT NOT NULL DEFAULT 'admin',       -- 'root' | 'admin'
+  active      BOOLEAN NOT NULL DEFAULT true,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS admin_sessions (
+  token      TEXT PRIMARY KEY,                      -- 随机 token（httpOnly cookie）
+  username   TEXT NOT NULL REFERENCES admin_users(username) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL                   -- 12h 后自动过期；登出/踢人 = 删行
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON admin_sessions (expires_at);

@@ -7,3 +7,5 @@ python-dotenv~=1.0
 fastapi>=0.115         # tools_server（custom-llm 代理 + 工具）+ admin console
 uvicorn[standard]>=0.30
 openai>=1.50           # OpenRouter(OpenAI 兼容)：门卫查询 Agent / 大脑
+pyotp>=2.9             # 门卫台 TOTP 2FA（无密码登录）
+segno>=1.6             # 生成 TOTP 二维码（纯 Python，无需 Pillow）

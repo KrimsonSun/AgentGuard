@@ -1,32 +1,42 @@
-# AgentGuard — Fly.io 部署配置
-# app 名首次 `fly launch` 时定；region iad = 美东，与 Neon(us-east-1)/Vapi/OpenRouter 同区，延迟最优。
+# AgentGuard — Fly.io 部署配置（单机跑两进程，两个公网服务）
+# region iad = 美东，与 Neon(us-east-1)/Vapi/OpenRouter 同区，延迟最优。
 app = "agentguard-yj"
 primary_region = "iad"
 
 [build]
 
-# 公网服务：custom-llm 代理 + Vapi 工具端点。常温单机(min=1)，语音路径不吃冷启动。
-[http_service]
+# 服务1：custom-llm 代理 + Vapi 工具端点（公网 443，Vapi 打这里）
+[[services]]
   internal_port = 8200
-  force_https = true
-  auto_stop_machines = false      # 不休眠——避免第一句撞冷启动
+  protocol = "tcp"
+  auto_stop_machines = false          # 不休眠——语音路径不吃冷启动
   auto_start_machines = true
   min_machines_running = 1
-  [http_service.concurrency]
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+  [services.concurrency]
     type = "requests"
     hard_limit = 250
     soft_limit = 200
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "2s"
 
-# 健康检查打 /health
-[[http_service.checks]]
-  interval = "15s"
-  timeout = "3s"
-  method = "GET"
-  path = "/health"
+# 服务2：门卫台 console（公网 8443，TOTP 2FA 保护——PII/写操作只对已登录者开放）
+[[services]]
+  internal_port = 8100
+  protocol = "tcp"
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  [[services.ports]]
+    port = 8443
+    handlers = ["tls", "http"]
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "2s"
 
 [[vm]]
   size = "shared-cpu-1x"
   memory = "512mb"
-
-# 注：admin console(8100) 不对公网暴露——本地用 `fly proxy 8100:8100` 私有访问，
-# 契合"访客 PII 不裸奔"的边界(决策：admin 私有 + Basic Auth)。

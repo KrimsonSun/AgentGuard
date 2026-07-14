@@ -5,35 +5,42 @@
 """
 import json
 import re
-import secrets
 import time
 from pathlib import Path
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
-from app import memory, runtime_config, trace  # 包名 app 在下方被 FastAPI 实例遮蔽，导入须在此之前
+from app import adminauth, memory, runtime_config, trace  # 包名 app 在下方被 FastAPI 实例遮蔽，导入须在此之前
 from app.config import settings
 
-_basic = HTTPBasic()
+_COOKIE = "ag_session"
+# 无需会话即可访问：首页壳 / 鉴权状态 / 登录登出 / 首次初始化；其余全部要有效会话。
+_PUBLIC_PATHS = {"/", "/api/me", "/api/login", "/api/logout", "/api/setup"}
 
 
-def require_auth(cred: HTTPBasicCredentials = Depends(_basic)) -> str:
-    """全局 HTTP Basic 认证。未设 ADMIN_PASSWORD 则一律拒绝（拒裸奔）。"""
-    ok_user = secrets.compare_digest(cred.username, settings.admin_user)
-    ok_pass = bool(settings.admin_password) and secrets.compare_digest(cred.password, settings.admin_password)
-    if not (ok_user and ok_pass):
-        detail = "未配置 ADMIN_PASSWORD（在 .env 设置后重启）" if not settings.admin_password else "账号或密码错误"
-        raise HTTPException(status_code=401, detail=detail, headers={"WWW-Authenticate": "Basic"})
-    return cred.username
+async def require_session(request: Request) -> None:
+    """全局会话闸门：公开路径放行，其余校验 httpOnly cookie 对应的服务端会话。"""
+    if request.url.path in _PUBLIC_PATHS:
+        return
+    user = await adminauth.session_user(request.cookies.get(_COOKIE))
+    if not user:
+        raise HTTPException(status_code=401, detail="未登录或会话已过期")
+    request.state.user = user
 
 
-# 全局依赖：所有路由（含首页 HTML）都要过认证
-app = FastAPI(title="AgentGuard Admin", dependencies=[Depends(require_auth)])
+def _require_root(request: Request) -> dict:
+    user = getattr(request.state, "user", None)
+    if not user or user.get("role") != "root":
+        raise HTTPException(status_code=403, detail="需要根管理员权限")
+    return user
+
+
+# 全局依赖：会话闸门（登录页/首次初始化除外）
+app = FastAPI(title="AgentGuard Admin", dependencies=[Depends(require_session)])
 STATIC = Path(__file__).parent / "static"
 _oai_client: AsyncOpenAI | None = None
 
@@ -52,6 +59,103 @@ _models_cache: tuple[float, list[dict]] | None = None
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(STATIC / "index.html")
+
+
+# ============ 鉴权：无密码 TOTP 2FA + 服务端会话 ============
+
+@app.get("/api/me")
+async def me(request: Request) -> dict:
+    user = await adminauth.session_user(request.cookies.get(_COOKIE))
+    return {"user": user, "setup_needed": not await adminauth.root_exists()}
+
+
+class LoginReq(BaseModel):
+    username: str
+    code: str
+
+
+@app.post("/api/login")
+async def login(req: LoginReq, response: Response) -> dict:
+    try:
+        token = await adminauth.verify_and_session(req.username.strip(), (req.code or "").strip())
+    except PermissionError as e:
+        raise HTTPException(429, str(e))
+    if not token:
+        raise HTTPException(401, "用户名或验证码错误")
+    response.set_cookie(_COOKIE, token, httponly=True, secure=True, samesite="lax", max_age=12 * 3600)
+    return {"ok": True}
+
+
+@app.post("/api/logout")
+async def logout(request: Request, response: Response) -> dict:
+    await adminauth.delete_session(request.cookies.get(_COOKIE))
+    response.delete_cookie(_COOKIE)
+    return {"ok": True}
+
+
+class SetupReq(BaseModel):
+    username: str = "Admin"
+
+
+@app.post("/api/setup")
+async def setup(req: SetupReq) -> dict:
+    """首次初始化：无根管理员时建根号并返回二维码；已初始化则拒绝（自禁用）。"""
+    if await adminauth.root_exists():
+        raise HTTPException(403, "已初始化，禁止重复设置")
+    return await adminauth.create_admin((req.username or "Admin").strip() or "Admin", role="root")
+
+
+# ---- 根管理员：账号 & 会话管理 ----
+@app.get("/api/admins")
+async def admins(request: Request) -> dict:
+    _require_root(request)
+    return {"admins": await adminauth.list_admins(), "me": request.state.user}
+
+
+class NewAdmin(BaseModel):
+    username: str
+
+
+@app.post("/api/admins")
+async def new_admin(req: NewAdmin, request: Request) -> dict:
+    _require_root(request)
+    u = (req.username or "").strip()
+    if not u:
+        raise HTTPException(400, "用户名不能为空")
+    if await adminauth.username_taken(u):
+        raise HTTPException(409, "用户名已存在")
+    return await adminauth.create_admin(u, role="admin")
+
+
+class ToggleReq(BaseModel):
+    username: str
+    active: bool
+
+
+@app.post("/api/admins/active")
+async def toggle_admin(req: ToggleReq, request: Request) -> dict:
+    root = _require_root(request)
+    if req.username == root["username"] and not req.active:
+        raise HTTPException(400, "不能停用自己")
+    await adminauth.set_active(req.username, req.active)
+    return {"ok": True}
+
+
+@app.get("/api/sessions")
+async def sessions(request: Request) -> dict:
+    _require_root(request)
+    return {"sessions": await adminauth.list_sessions()}
+
+
+class RevokeReq(BaseModel):
+    token: str
+
+
+@app.post("/api/sessions/revoke")
+async def revoke_session_ep(req: RevokeReq, request: Request) -> dict:
+    _require_root(request)
+    await adminauth.revoke_session(req.token)
+    return {"ok": True}
 
 
 @app.get("/api/models")

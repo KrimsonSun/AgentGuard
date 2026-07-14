@@ -53,16 +53,31 @@
   .fcard .foot { display: flex; justify-content: space-between; margin-top: 8px; font-size: .78rem; opacity: .7; }
   .fcard .sla { color: #1a7a3a; font-weight: 600; } .fcard .sla.slow { color: #c04a6e; }
   .badge-new { position: absolute; top: -8px; right: 10px; background: seagreen; color: #fff; font-size: .7rem; padding: 1px 8px; border-radius: 10px; }
+  #gate { max-width: 380px; margin: 48px auto; }
+  .authcard { border: 1px solid seagreen; border-radius: 14px; padding: 24px; text-align: center; }
+  .authcard h2 { font-size: 1.15rem; margin: 0 0 4px; }
+  .authcard input { width: 100%; box-sizing: border-box; margin: 8px 0; text-align: center; font-size: 1.05rem; letter-spacing: 1px; }
+  .authcard button { width: 100%; padding: 10px; border-radius: 8px; border: none; background: seagreen; color: #fff; font-size: 1rem; cursor: pointer; margin-top: 6px; }
+  .authcard .hint { opacity: .65; font-size: .82rem; margin-top: 10px; line-height: 1.6; }
+  .authcard img.qr { width: 200px; height: 200px; margin: 12px auto 4px; display: block; }
+  .autherr { color: #c04a6e; font-size: .85rem; min-height: 1.1em; }
 </style>
 </head>
 <body>
-<h1>🐳 AgentGuard Admin</h1>
+<h1>🐳 AgentGuard Admin <span id="userbar" hidden style="font-size:.8rem;font-weight:400"></span></h1>
+
+<!-- 未登录：登录 / 首次初始化（由 JS 填充） -->
+<div id="gate"></div>
+
+<!-- 已登录：控制台 -->
+<div id="app" hidden>
 <div class="tabs">
   <button class="tab on" data-p="model">模型切换</button>
   <button class="tab" data-p="visitor">访客查询</button>
   <button class="tab" data-p="feed">📟 值守台</button>
   <button class="tab" data-p="chat">🐳 门卫台</button>
   <button class="tab" data-p="trace">通话 Trace</button>
+  <button class="tab" id="tab-admins" data-p="admins" hidden>👤 账号管理</button>
 </div>
 
 <!-- ===== 模型 ===== -->
@@ -115,6 +130,17 @@
   <div class="tl" id="tl">选择一通电话查看完整推理/行为 trace。</div>
 </div>
 
+<!-- ===== 账号管理（仅根管理员）===== -->
+<div class="panel" id="p-admins">
+  <div class="bar"><input id="newadmin" class="grow" placeholder="新管理员用户名"><button class="act" onclick="createAdmin()">建号</button></div>
+  <div id="newqr"></div>
+  <h3 style="font-size:.95rem;margin:16px 0 4px">管理员</h3>
+  <table><thead><tr><th>用户名</th><th>角色</th><th>状态</th><th></th></tr></thead><tbody id="adminrows"></tbody></table>
+  <h3 style="font-size:.95rem;margin:16px 0 4px">在线会话</h3>
+  <table><thead><tr><th>用户</th><th>登录</th><th>过期</th><th></th></tr></thead><tbody id="sessrows"></tbody></table>
+</div>
+</div><!-- /#app -->
+
 <div id="toast"></div>
 <script>
 const $ = id => document.getElementById(id);
@@ -128,6 +154,7 @@ document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
   if (t.dataset.p==="visitor") loadStats();
   if (t.dataset.p==="trace") loadCalls();
   if (t.dataset.p==="feed") startFeed();
+  if (t.dataset.p==="admins") loadAdmins();
 });
 
 /* ---- 模型 ---- */
@@ -231,7 +258,74 @@ async function loadFeed(){
   feedPrimed = true;
 }
 
-loadCfg().then(loadModels);
+/* ---- 鉴权闸门（TOTP + 会话）---- */
+let ME = null;
+async function api(path, opts){ const r=await fetch(path, opts); let d={}; try{d=await r.json();}catch(e){} if(!r.ok) throw new Error(d.detail||('HTTP '+r.status)); return d; }
+function gate(html){ $("gate").hidden=false; $("app").hidden=true; $("userbar").hidden=true; $("gate").innerHTML=html; }
+
+async function init(){
+  const s = await (await fetch("/api/me")).json();
+  ME = s.user;
+  if (ME) return showApp();
+  if (s.setup_needed) return showSetup();
+  showLogin();
+}
+function showLogin(){
+  gate(`<div class="authcard"><h2>门卫台登录</h2><div style="opacity:.6;font-size:.85rem">用户名 + 验证器 6 位码</div>
+    <input id="lu" placeholder="用户名" autocomplete="username">
+    <input id="lc" placeholder="6 位验证码" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
+    <div class="autherr" id="lerr"></div><button onclick="doLogin()">登录</button></div>`);
+  $("lc").addEventListener("keydown",e=>{if(e.key==="Enter")doLogin();});
+}
+async function doLogin(){
+  try{ await api("/api/login",{method:"POST",headers:{"content-type":"application/json"},
+    body:JSON.stringify({username:$("lu").value.trim(), code:$("lc").value.trim()})}); await init(); }
+  catch(e){ $("lerr").textContent=e.message; }
+}
+function showSetup(){
+  gate(`<div class="authcard"><h2>首次初始化</h2><div style="opacity:.6;font-size:.85rem">创建根管理员并绑定验证器</div>
+    <input id="su" value="Admin"><div class="autherr" id="serr"></div>
+    <button onclick="doSetup()">生成二维码</button><div id="setupqr"></div></div>`);
+}
+async function doSetup(){
+  try{ const d=await api("/api/setup",{method:"POST",headers:{"content-type":"application/json"},
+    body:JSON.stringify({username:$("su").value.trim()||"Admin"})});
+    $("setupqr").innerHTML=`<img class="qr" src="${d.qr}"><div class="hint">用 Apple 密码 / Google Authenticator 扫码，然后用 <b>${esc(d.username)}</b> + 6 位码登录</div><button onclick="showLogin()">去登录</button>`;
+    $("su").disabled=true;
+  }catch(e){ $("serr").textContent=e.message; }
+}
+function showApp(){
+  $("gate").hidden=true; $("app").hidden=false; $("userbar").hidden=false;
+  $("userbar").innerHTML=`· ${esc(ME.username)}${ME.role==="root"?" (root)":""} · <a href="#" onclick="doLogout();return false" style="color:seagreen">登出</a>`;
+  $("tab-admins").hidden = ME.role!=="root";
+  loadCfg().then(loadModels);
+}
+async function doLogout(){ try{await fetch("/api/logout",{method:"POST"});}catch(e){} ME=null; stopFeed(); showLogin(); }
+
+/* ---- 账号管理（root）---- */
+async function loadAdmins(){
+  try{
+    const d=await api("/api/admins");
+    $("adminrows").innerHTML=d.admins.map(a=>`<tr><td>${esc(a.username)}</td><td>${esc(a.role)}</td>
+      <td>${a.active?'✅':'⛔'}</td><td>${a.role==="root"?'':`<button class="act" onclick="toggleAdmin('${esc(a.username)}',${!a.active})">${a.active?'停用':'启用'}</button>`}</td></tr>`).join("");
+    const s=await api("/api/sessions");
+    $("sessrows").innerHTML=s.sessions.map(x=>`<tr><td>${esc(x.username)}</td>
+      <td class="mono">${esc((x.created_at||'').replace('T',' ').slice(0,16))}</td>
+      <td class="mono">${esc((x.expires_at||'').replace('T',' ').slice(0,16))}</td>
+      <td><button class="act" onclick="revokeSess('${esc(x.token)}')">踢下线</button></td></tr>`).join("");
+  }catch(e){ toast("❌ "+e.message); }
+}
+async function createAdmin(){
+  const u=$("newadmin").value.trim(); if(!u) return;
+  try{ const d=await api("/api/admins",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({username:u})});
+    $("newqr").innerHTML=`<div class="card">新账号 <b>${esc(d.username)}</b> 的二维码（让本人扫码入验证器）：<br><img class="qr" src="${d.qr}"></div>`;
+    $("newadmin").value=""; loadAdmins();
+  }catch(e){ toast("❌ "+e.message); }
+}
+async function toggleAdmin(u,active){ try{ await api("/api/admins/active",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({username:u,active})}); loadAdmins(); }catch(e){ toast("❌ "+e.message); } }
+async function revokeSess(t){ try{ await api("/api/sessions/revoke",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token:t})}); loadAdmins(); }catch(e){ toast("❌ "+e.message); } }
+
+init();
 </script>
 </body>
 </html>
