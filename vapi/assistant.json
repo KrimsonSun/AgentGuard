@@ -1,0 +1,57 @@
+{
+  "_comment": "AgentGuard Vapi assistant 配置模板。占位符 <...> 由 create_assistant.py 从 .env 注入。中文语音默认走便宜档(Azure/OpenAI)，非高端音色——门卫场景够用。",
+  "name": "AgentGuard 语音门卫",
+  "firstMessage": "您好，请问车牌号多少，今天找哪家公司，什么事儿？",
+  "firstMessageMode": "assistant-speaks-first",
+  "model": {
+    "provider": "custom-llm",
+    "url": "https://openrouter.ai/api/v1",
+    "model": "google/gemini-2.5-flash-lite",
+    "temperature": 0.3,
+    "messages": [
+      {
+        "role": "system",
+        "content": "你是工业园区停车场入口的语音门卫小鲸，给未登记访客车辆做登记。像真人门卫：口语、简短、干脆，一句话不超过20字。收集四项：车牌号、来访单位、来访事由、手机号（入场时间系统自动记，别问）。铁律：一次可问多件事，绝不一问一答；对方给了几项就调 update_slots 记几项，只追问缺的；车牌复述确认；四项收齐依次调 save_visit、notify_guard 再收尾『好的！{车牌}，{单位}{事由}，已通知门卫，请稍等放行』。回访：拿到车牌/手机后可调 lookup_returning_visitor，命中则直接确认不重采，未获明确确认前不得 save_visit。"
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "server": { "url": "<VAPI_TOOLS_URL>/vapi/tools" },
+        "function": {
+          "name": "update_slots",
+          "description": "记录司机这句话给出的登记信息，给了几项传几项",
+          "parameters": { "type": "object", "properties": {
+            "plate": {"type": "string"}, "company": {"type": "string"},
+            "phone": {"type": "string"}, "purpose": {"type": "string"},
+            "visitor_name": {"type": "string"} } }
+        }
+      },
+      {
+        "type": "function",
+        "server": { "url": "<VAPI_TOOLS_URL>/vapi/tools" },
+        "function": {
+          "name": "lookup_returning_visitor",
+          "description": "用车牌或手机号查历史访客画像，判断是否回访",
+          "parameters": { "type": "object", "properties": {
+            "plate": {"type": "string"}, "phone": {"type": "string"} } }
+        }
+      },
+      {
+        "type": "function",
+        "server": { "url": "<VAPI_TOOLS_URL>/vapi/tools" },
+        "function": { "name": "save_visit", "description": "四项收齐后登记入库",
+          "parameters": { "type": "object", "properties": {} } }
+      },
+      {
+        "type": "function",
+        "server": { "url": "<VAPI_TOOLS_URL>/vapi/tools" },
+        "function": { "name": "notify_guard", "description": "登记后推送保安",
+          "parameters": { "type": "object", "properties": {} } }
+      }
+    ]
+  },
+  "voice": { "provider": "azure", "voiceId": "zh-CN-XiaoxiaoNeural" },
+  "transcriber": { "provider": "deepgram", "model": "nova-2", "language": "zh" },
+  "serverUrl": "<VAPI_TOOLS_URL>/vapi/events"
+}
