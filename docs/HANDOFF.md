@@ -207,6 +207,22 @@
 
 ---
 
+## 决策 11（2026-07-13）— STT/TTS：云 API 不自部署；首选火山引擎
+
+**Q 性能/部署**：走云 API，STT/TTS 计算在 provider 的 GPU 上，**本机不吃 GPU**——LiveKit worker 只跑 VAD(Silero)+turn detector 两个小 CPU 模型 + 音频 I/O。单通电话 ≈ 1 核 + 几十 MB + 十几 kbps；并发是 I/O 密集，小机器可多路。**结论：不自部署。**
+
+**Q 自部署有提升吗**：take-home **无收益反更差**（要 GPU/运维/调优，成本远超 API；最好中文模型本就是云服务）。
+自部署真正有意义的场景（答辩深度点）：① 延迟——同机+优化模型省网络往返，但需强 GPU 否则更慢；② 高并发摊薄成本；
+③ **隐私/合规**——访客手机号是 PII，真实园区落地时"音频不出内网"是正当理由。自部署中文可用开源 FunASR/Paraformer(ASR)+CosyVoice(TTS)。→ 留作"生产化演进"讨论，本项目用云 API。
+
+**Q 三家对比 → 首选火山引擎**：
+- 火山：中文顶级、一账号 STT+TTS、**官方 `livekit-plugins-volcengine`**、境内低延迟、国内易注册 → **选它**。
+- 阿里(Paraformer/CosyVoice)：中文并列第一，但**无现成 LiveKit 插件（要自写）**，是唯一摩擦点。
+- Deepgram：流式延迟标杆但**中文弱 + 跨境延迟 + 仅STT + 需国际支付** → 最差匹配，留作对比基线。
+- **最终以 bench 实测为准**（车牌准确率是硬指标，见 experiments/README voxtral 基线 0/2 的教训）。
+
+---
+
 ## 未决项 / 待确认
 
 - [ ] 题目实际收到日（校准 Day 7 截止）——问对接人。
