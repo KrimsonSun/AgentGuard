@@ -24,6 +24,7 @@ UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/
 def build_config() -> dict:
     raw = (pathlib.Path(__file__).parent / "assistant.json").read_text()
     raw = raw.replace("<VAPI_TOOLS_URL>", TOOLS_URL)
+    raw = raw.replace("<VAPI_SECRET>", os.getenv("VAPI_SERVER_SECRET", ""))
     cfg = json.loads(raw)
     cfg.pop("_comment", None)
     # 无需在 Vapi 存 OpenRouter 凭证：model.url 指向我们后端的 /vapi 透明代理，

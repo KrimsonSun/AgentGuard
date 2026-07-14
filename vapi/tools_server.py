@@ -14,7 +14,7 @@ import json
 import logging
 
 import httpx
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 
 from app import memory, trace
@@ -35,23 +35,23 @@ def _slots(call_id: str) -> VisitSlots:
 
 # ---------- 工具实现（复用 app/ 的记忆与校验）----------
 async def do_update_slots(call_id: str, args: dict) -> str:
+    """接受 STT 原始输出，绝不硬拒（车牌/手机 STT 易错，靠复述确认而非打回，避免反复追问）。"""
     s = _slots(call_id)
+    notes = []
     if args.get("plate"):
         p = normalize_plate(args["plate"])
-        if VisitSlots.valid_plate(p):
-            s.plate = p
-        else:
-            return f"车牌「{args['plate']}」格式可疑，请复述确认。{s.brief()}"
+        s.plate = p
+        if not VisitSlots.valid_plate(p):
+            notes.append(f"车牌暂记「{p}」，请一字一字向司机复述确认，对方纠正就改")
     if args.get("phone"):
         ph = normalize_phone(args["phone"])
-        if VisitSlots.valid_phone(ph):
-            s.phone = ph
-        else:
-            return f"手机号「{args['phone']}」不是11位，请再问。{s.brief()}"
+        s.phone = ph
+        if not VisitSlots.valid_phone(ph):
+            notes.append(f"手机号暂记「{ph}」(非11位)，请向司机确认")
     for k in ("company", "purpose", "visitor_name"):
         if args.get(k):
             setattr(s, k, str(args[k]).strip())
-    return s.brief()
+    return s.brief() + (" | " + "；".join(notes) if notes else "")
 
 
 async def do_lookup(call_id: str, args: dict) -> str:
@@ -90,8 +90,15 @@ HANDLERS = {
 }
 
 
-@app.post("/vapi/tools")
-async def vapi_tools(req: Request) -> dict:
+def _check(secret: str) -> None:
+    """URL 内嵌密钥校验：保护公网暴露的 /vapi 端点（含用我方 key 的代理）。"""
+    if settings.vapi_server_secret and secret != settings.vapi_server_secret:
+        raise HTTPException(status_code=403, detail="forbidden")
+
+
+@app.post("/vapi/{secret}/tools")
+async def vapi_tools(secret: str, req: Request) -> dict:
+    _check(secret)
     body = await req.json()
     msg = body.get("message", body)
     call_id = (msg.get("call") or {}).get("id") or msg.get("callId") or "vapi-unknown"
@@ -116,9 +123,10 @@ async def vapi_tools(req: Request) -> dict:
     return {"results": results}
 
 
-@app.post("/vapi/events")
-async def vapi_events(req: Request) -> dict:
+@app.post("/vapi/{secret}/events")
+async def vapi_events(secret: str, req: Request) -> dict:
     """通话开始/结束事件：起始可做主叫号回访预热，结束清理工作记忆。"""
+    _check(secret)
     body = await req.json()
     msg = body.get("message", body)
     call_id = (msg.get("call") or {}).get("id") or "vapi-unknown"
@@ -134,12 +142,13 @@ async def health() -> dict:
 
 # ---------- custom-LLM 透明代理：Vapi 的 LLM 打这里，我们注入 OpenRouter key ----------
 # 好处：Vapi 无需持有 OpenRouter 凭证；所有 key 与 token 对账都留在我们后端。
-# Vapi assistant 的 model.url 设为 <VAPI_TOOLS_URL>/vapi → Vapi 调 {url}/chat/completions。
+# Vapi assistant 的 model.url 设为 <VAPI_TOOLS_URL>/vapi/<secret> → Vapi 调 {url}/chat/completions。
 _OR = "https://openrouter.ai/api/v1/chat/completions"
 
 
-@app.post("/vapi/chat/completions")
-async def proxy_llm(req: Request):
+@app.post("/vapi/{secret}/chat/completions")
+async def proxy_llm(secret: str, req: Request):
+    _check(secret)
     body = await req.body()
     headers = {"Authorization": f"Bearer {settings.openrouter_api_key}",
                "Content-Type": "application/json"}

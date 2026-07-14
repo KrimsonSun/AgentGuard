@@ -24,6 +24,8 @@ class Settings:
     # Admin Console 认证（访客含 PII，必须设密码）
     admin_user: str = os.getenv("ADMIN_USER", "admin")
     admin_password: str = os.getenv("ADMIN_PASSWORD", "")
+    # Vapi 回调密钥（URL 内嵌，保护公网暴露的 /vapi 端点）
+    vapi_server_secret: str = os.getenv("VAPI_SERVER_SECRET", "")
 
 
 settings = Settings()
