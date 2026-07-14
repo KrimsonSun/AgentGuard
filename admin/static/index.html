@@ -53,6 +53,14 @@
   .fcard .foot { display: flex; justify-content: space-between; margin-top: 8px; font-size: .78rem; opacity: .7; }
   .fcard .sla { color: #1a7a3a; font-weight: 600; } .fcard .sla.slow { color: #c04a6e; }
   .badge-new { position: absolute; top: -8px; right: 10px; background: seagreen; color: #fff; font-size: .7rem; padding: 1px 8px; border-radius: 10px; }
+  .feedhead { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 2px 0 6px; font-size: .9rem; }
+  .feedhead b { font-size: 1rem; color: seagreen; }
+  .fcard.pending { box-shadow: 0 0 0 2px #e8a302 inset; }
+  .badge-pending { position: absolute; top: -9px; left: 10px; background: #e8a302; color: #3a2c00; font-size: .72rem; font-weight: 700; padding: 1px 9px; border-radius: 10px; }
+  .fcard .rel { margin-top: 9px; }
+  .fcard .rel button { width: 100%; padding: 7px; border-radius: 8px; border: none; background: #e8a302; color: #3a2c00; font-weight: 700; font-size: .95rem; cursor: pointer; }
+  .fcard .rel button:hover { filter: brightness(1.08); }
+  .fcard .released { margin-top: 9px; color: #1a7a3a; font-size: .82rem; font-weight: 600; }
   #gate { max-width: 380px; margin: 48px auto; }
   .authcard { border: 1px solid seagreen; border-radius: 14px; padding: 24px; text-align: center; }
   .authcard h2 { font-size: 1.15rem; margin: 0 0 4px; }
@@ -72,16 +80,16 @@
 <!-- 已登录：控制台 -->
 <div id="app" hidden>
 <div class="tabs">
-  <button class="tab on" data-p="model">模型切换</button>
+  <button class="tab" data-p="model">模型切换</button>
   <button class="tab" data-p="visitor">访客查询</button>
-  <button class="tab" data-p="feed">📟 值守台</button>
+  <button class="tab on" data-p="feed">📟 值守台</button>
   <button class="tab" data-p="chat">🐳 门卫台</button>
   <button class="tab" data-p="trace">通话 Trace</button>
   <button class="tab" id="tab-admins" data-p="admins" hidden>👤 账号管理</button>
 </div>
 
 <!-- ===== 模型 ===== -->
-<div class="panel on" id="p-model">
+<div class="panel" id="p-model">
   <div class="card">当前模型：<b id="curModel" class="mono">…</b> <span id="fallback" style="opacity:.55"></span></div>
   <div class="bar">
     <input type="search" id="mq" class="grow" placeholder="搜索模型 id / 名称，如 qwen、flash…">
@@ -107,9 +115,13 @@
     <tbody id="vrows"></tbody></table>
 </div>
 
-<!-- ===== 值守台（保安接收面）===== -->
-<div class="panel" id="p-feed">
-  <div style="opacity:.6;font-size:.82rem;margin:4px 0 10px">🟢 实时刷新（每 3 秒）· 司机登记完成后卡片即刻出现 · ⏱ = 接通→保安送达耗时（25s SLA）</div>
+<!-- ===== 值守台（保安接收面·默认首页）===== -->
+<div class="panel on" id="p-feed">
+  <div class="feedhead">
+    <div>📞 当前来电号码 <b id="phonenum" class="mono">…</b></div>
+    <button class="act" onclick="manualRelease()">🔓 手动放行</button>
+  </div>
+  <div style="opacity:.6;font-size:.82rem;margin:4px 0 10px">🟢 实时刷新（每 3 秒）· 新登记即刻请求放行 · ⏱ = 接通→保安送达耗时（25s SLA）</div>
   <div id="feedcards" class="feedgrid"></div>
 </div>
 
@@ -235,9 +247,13 @@ async function chatConfirm(ok){ if(chatBusy) return; await chatPost({messages: c
 $("chatin").addEventListener("keydown",e=>{if(e.key==="Enter")chatSend();});
 
 /* ---- 值守台（实时 feed）---- */
-let feedTimer=null, feedSeen=new Set(), feedPrimed=false;
+let feedTimer=null, feedSeen=new Set(), feedPrimed=false, phoneTimer=null;
 function stopFeed(){ if(feedTimer){clearInterval(feedTimer);feedTimer=null;} }
-function startFeed(){ loadFeed(); feedTimer=setInterval(loadFeed,3000); }
+function startFeed(){ stopFeed(); loadFeed(); feedTimer=setInterval(loadFeed,3000); }
+async function doRelease(id){ try{ await fetch("/api/release",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({visit_id:id})}); toast("✅ 已放行"); loadFeed(); }catch(e){ toast("❌ 放行失败"); } }
+async function manualRelease(){ try{ await fetch("/api/release",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({})}); toast("🔓 已手动放行（占位）"); }catch(e){ toast("❌ 失败"); } }
+function fmtPhone(n){ const m=String(n).match(/^\+1(\d{3})(\d{3})(\d{4})$/); return m?`+1 ${m[1]}-${m[2]}-${m[3]}`:n; }
+async function loadPhone(){ try{ const d=await(await fetch("/api/phone")).json(); $("phonenum").textContent=d.number?fmtPhone(d.number):"（未获取）"; }catch(e){} }
 async function loadFeed(){
   let d; try{ d=await(await fetch("/api/feed?limit=24")).json(); }catch(e){ return; }
   const now=Date.now();
@@ -247,14 +263,17 @@ async function loadFeed(){
     const justNew = feedPrimed && !feedSeen.has(v.id);   // 首屏不animate；之后只有新卡片弹
     feedSeen.add(v.id);
     const sla = v.elapsed_s!=null ? `<span class="sla ${v.elapsed_s>25?'slow':''}">⏱ ${(+v.elapsed_s).toFixed(1)}s</span>` : '';
-    const badge = ageMs < 90000 ? '<span class="badge-new">新到</span>' : '';
-    return `<div class="fcard ${justNew?'fresh':''}">${badge}
+    const pending = !v.released;
+    const badge = pending ? '<span class="badge-pending">🔔 请放行</span>' : (ageMs<90000?'<span class="badge-new">新到</span>':'');
+    const rel = pending ? `<div class="rel"><button onclick="doRelease(${v.id})">🔓 放行</button></div>` : '<div class="released">✓ 已放行</div>';
+    return `<div class="fcard ${justNew?'fresh':''} ${pending?'pending':''}">${badge}
       <div class="plate">🚗 ${esc(v.plate)||'—'}</div>
       <div class="who">${esc(v.visitor_name||'访客')}</div>
       <div class="meta">${esc(v.company)} · ${esc(v.purpose)}<br>${esc(v.phone)}</div>
       <div class="foot"><span>${t?t.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}):''}</span>${sla}</div>
+      ${rel}
     </div>`;
-  }).join("") || '<div style="opacity:.5">暂无登记记录。司机拨号完成登记后，卡片会在这里实时出现。</div>';
+  }).join("") || '<div style="opacity:.5">暂无登记记录。司机拨号完成登记后，卡片会在这里实时出现并请求放行。</div>';
   feedPrimed = true;
 }
 
@@ -299,8 +318,10 @@ function showApp(){
   $("userbar").innerHTML=`· ${esc(ME.username)}${ME.role==="root"?" (root)":""} · <a href="#" onclick="doLogout();return false" style="color:seagreen">登出</a>`;
   $("tab-admins").hidden = ME.role!=="root";
   loadCfg().then(loadModels);
+  loadPhone(); if(!phoneTimer) phoneTimer=setInterval(loadPhone,60000);
+  startFeed();               // 值守台是默认首页
 }
-async function doLogout(){ try{await fetch("/api/logout",{method:"POST"});}catch(e){} ME=null; stopFeed(); showLogin(); }
+async function doLogout(){ try{await fetch("/api/logout",{method:"POST"});}catch(e){} ME=null; stopFeed(); if(phoneTimer){clearInterval(phoneTimer);phoneTimer=null;} showLogin(); }
 
 /* ---- 账号管理（root）---- */
 async function loadAdmins(){

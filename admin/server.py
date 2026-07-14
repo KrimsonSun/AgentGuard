@@ -231,11 +231,52 @@ async def search_visits(q: str = "", company: str = "", since_days: int = 0, lim
 
 @app.get("/api/feed")
 async def feed(limit: int = 20) -> dict:
-    """值守台实时流：最新登记在前，带 ⏱ 送达耗时（保安接收面，25s SLA 可视）。"""
+    """值守台实时流：最新登记在前，带 ⏱ 送达耗时 + 放行状态（保安接收面，25s SLA 可视）。"""
     rows = await (await memory.pool()).fetch(
-        """SELECT id, plate, company, phone, purpose, visitor_name, entered_at, elapsed_s
+        """SELECT id, plate, company, phone, purpose, visitor_name, entered_at, elapsed_s, released, released_at
            FROM visits ORDER BY entered_at DESC LIMIT $1""", min(limit, 50))
     return {"visits": [dict(r) for r in rows]}
+
+
+class ReleaseReq(BaseModel):
+    visit_id: int | None = None      # 指定访客放行；空 = 手动放行（占位）
+
+
+@app.post("/api/release")
+async def release(req: ReleaseReq) -> dict:
+    """放行（占位：真实版这里驱动闸机/操纵杆）。带 visit_id 则把该访客置为已放行。"""
+    if req.visit_id is not None:
+        await (await memory.pool()).execute(
+            "UPDATE visits SET released=true, released_at=now() WHERE id=$1", req.visit_id)
+        return {"ok": True, "visit_id": req.visit_id, "mode": "visit"}
+    return {"ok": True, "mode": "manual"}    # 手动放行：仅占位（无具体访客）
+
+
+_VAPI_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/125.0 Safari/537.36"
+_ASSISTANT_ID = "43dd62e6-f7db-44d9-ae2a-5cbf0614e1c8"
+_phone_cache: tuple[float, str | None] | None = None
+
+
+@app.get("/api/phone")
+async def phone() -> dict:
+    """当前 Vapi 绑定的来电号码（查 Vapi API，缓存 60s）。"""
+    global _phone_cache
+    if _phone_cache and time.monotonic() - _phone_cache[0] < 60:
+        return {"number": _phone_cache[1]}
+    number = None
+    if settings.vapi_api_key:
+        try:
+            async with httpx.AsyncClient(timeout=10) as c:
+                r = await c.get("https://api.vapi.ai/phone-number",
+                                headers={"Authorization": f"Bearer {settings.vapi_api_key}", "User-Agent": _VAPI_UA})
+            if r.status_code < 300:
+                nums = r.json() or []
+                m = next((n for n in nums if n.get("assistantId") == _ASSISTANT_ID), None) or (nums[0] if nums else None)
+                number = m.get("number") if m else None
+        except Exception:
+            pass
+    _phone_cache = (time.monotonic(), number)
+    return {"number": number}
 
 
 @app.get("/api/stats")

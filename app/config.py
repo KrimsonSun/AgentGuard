@@ -23,6 +23,8 @@ class Settings:
     admin_password: str = os.getenv("ADMIN_PASSWORD", "")
     # Vapi 回调密钥（URL 内嵌，保护公网暴露的 /vapi 端点）
     vapi_server_secret: str = os.getenv("VAPI_SERVER_SECRET", "")
+    # Vapi 管理 API key（查当前绑定的来电号码等；只在服务端用）
+    vapi_api_key: str = os.getenv("VAPI_API_KEY", "")
 
 
 settings = Settings()
