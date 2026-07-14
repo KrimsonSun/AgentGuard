@@ -117,6 +117,15 @@ async def search_visits(q: str = "", company: str = "", since_days: int = 0, lim
     return {"count": len(rows), "visits": [dict(r) for r in rows]}
 
 
+@app.get("/api/feed")
+async def feed(limit: int = 20) -> dict:
+    """值守台实时流：最新登记在前，带 ⏱ 送达耗时（保安接收面，25s SLA 可视）。"""
+    rows = await (await memory.pool()).fetch(
+        """SELECT id, plate, company, phone, purpose, visitor_name, entered_at, elapsed_s
+           FROM visits ORDER BY entered_at DESC LIMIT $1""", min(limit, 50))
+    return {"visits": [dict(r) for r in rows]}
+
+
 @app.get("/api/stats")
 async def stats() -> dict:
     p = await memory.pool()

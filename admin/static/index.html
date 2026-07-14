@@ -43,6 +43,16 @@
   .confirm .btns { display: flex; gap: 8px; margin-top: 9px; }
   .confirm button { padding: 5px 16px; border-radius: 7px; border: none; cursor: pointer; font-size: .9rem; }
   .confirm .yes { background: seagreen; color: #fff; } .confirm .no { background: #8883; color: inherit; }
+  .feedgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px,1fr)); gap: 12px; }
+  .fcard { border: 1px solid seagreen; border-radius: 12px; padding: 12px 14px; background: color-mix(in srgb, seagreen 8%, transparent); position: relative; }
+  .fcard.fresh { animation: pop .55s ease; box-shadow: 0 0 0 2px seagreen inset; }
+  @keyframes pop { from { transform: scale(.96); opacity: .3; } }
+  .fcard .plate { font-size: 1.15rem; font-weight: 700; letter-spacing: .5px; font-family: ui-monospace, monospace; }
+  .fcard .who { color: seagreen; font-weight: 600; margin: 3px 0; }
+  .fcard .meta { font-size: .85rem; opacity: .8; line-height: 1.6; }
+  .fcard .foot { display: flex; justify-content: space-between; margin-top: 8px; font-size: .78rem; opacity: .7; }
+  .fcard .sla { color: #1a7a3a; font-weight: 600; } .fcard .sla.slow { color: #c04a6e; }
+  .badge-new { position: absolute; top: -8px; right: 10px; background: seagreen; color: #fff; font-size: .7rem; padding: 1px 8px; border-radius: 10px; }
 </style>
 </head>
 <body>
@@ -50,6 +60,7 @@
 <div class="tabs">
   <button class="tab on" data-p="model">模型切换</button>
   <button class="tab" data-p="visitor">访客查询</button>
+  <button class="tab" data-p="feed">📟 值守台</button>
   <button class="tab" data-p="chat">🐳 门卫台</button>
   <button class="tab" data-p="trace">通话 Trace</button>
 </div>
@@ -81,6 +92,12 @@
     <tbody id="vrows"></tbody></table>
 </div>
 
+<!-- ===== 值守台（保安接收面）===== -->
+<div class="panel" id="p-feed">
+  <div style="opacity:.6;font-size:.82rem;margin:4px 0 10px">🟢 实时刷新（每 3 秒）· 司机登记完成后卡片即刻出现 · ⏱ = 接通→保安送达耗时（25s SLA）</div>
+  <div id="feedcards" class="feedgrid"></div>
+</div>
+
 <!-- ===== 门卫台 ===== -->
 <div class="panel" id="p-chat">
   <div id="chatlog"><div class="msg a">您好，我是门卫台助手 🐳 可以问我「张师傅这个月来了几次」，也能让我改访客信息、合并被车牌听花拆开的同一个人（改动会先请您确认再落库）。</div></div>
@@ -107,8 +124,10 @@ document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
   document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
   document.querySelectorAll(".panel").forEach(x=>x.classList.remove("on"));
   t.classList.add("on"); $("p-"+t.dataset.p).classList.add("on");
+  stopFeed();
   if (t.dataset.p==="visitor") loadStats();
   if (t.dataset.p==="trace") loadCalls();
+  if (t.dataset.p==="feed") startFeed();
 });
 
 /* ---- 模型 ---- */
@@ -187,6 +206,30 @@ async function chatSend(){
 }
 async function chatConfirm(ok){ if(chatBusy) return; await chatPost({messages: chatMsgs, confirm: ok}); }
 $("chatin").addEventListener("keydown",e=>{if(e.key==="Enter")chatSend();});
+
+/* ---- 值守台（实时 feed）---- */
+let feedTimer=null, feedSeen=new Set(), feedPrimed=false;
+function stopFeed(){ if(feedTimer){clearInterval(feedTimer);feedTimer=null;} }
+function startFeed(){ loadFeed(); feedTimer=setInterval(loadFeed,3000); }
+async function loadFeed(){
+  let d; try{ d=await(await fetch("/api/feed?limit=24")).json(); }catch(e){ return; }
+  const now=Date.now();
+  $("feedcards").innerHTML = (d.visits||[]).map(v=>{
+    const t = v.entered_at ? new Date(String(v.entered_at).replace(' ','T')) : null;
+    const ageMs = t ? now-t.getTime() : 1e12;
+    const justNew = feedPrimed && !feedSeen.has(v.id);   // 首屏不animate；之后只有新卡片弹
+    feedSeen.add(v.id);
+    const sla = v.elapsed_s!=null ? `<span class="sla ${v.elapsed_s>25?'slow':''}">⏱ ${(+v.elapsed_s).toFixed(1)}s</span>` : '';
+    const badge = ageMs < 90000 ? '<span class="badge-new">新到</span>' : '';
+    return `<div class="fcard ${justNew?'fresh':''}">${badge}
+      <div class="plate">🚗 ${esc(v.plate)||'—'}</div>
+      <div class="who">${esc(v.visitor_name||'访客')}</div>
+      <div class="meta">${esc(v.company)} · ${esc(v.purpose)}<br>${esc(v.phone)}</div>
+      <div class="foot"><span>${t?t.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}):''}</span>${sla}</div>
+    </div>`;
+  }).join("") || '<div style="opacity:.5">暂无登记记录。司机拨号完成登记后，卡片会在这里实时出现。</div>';
+  feedPrimed = true;
+}
 
 loadCfg().then(loadModels);
 </script>

@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS visits (
   purpose       TEXT NOT NULL,                     -- 来访事由
   visitor_name  TEXT,                              -- 可选（"张师傅"）
   entered_at    TIMESTAMPTZ NOT NULL DEFAULT now(),-- 入场时间（系统自动）
+  elapsed_s     REAL,                              -- 接通→保安送达耗时（25s SLA 指标）
   purpose_embedding vector(1024)                   -- 图-lite：事由语义索引（加分层，可空）
 );
 CREATE INDEX IF NOT EXISTS idx_visits_plate    ON visits (plate);

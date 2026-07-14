@@ -12,6 +12,7 @@ Vapi 需公网可达 → 本地用隧道：cloudflared tunnel --url http://local
 """
 import json
 import logging
+import time
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -28,6 +29,7 @@ app = FastAPI(title="AgentGuard Vapi Tools")
 # 单次通话的工作记忆（call_id → slots）。单实例 demo 用内存即可；多实例可挪到 Redis/PG。
 _SLOTS: dict[str, VisitSlots] = {}
 _LOOKED_UP: set[str] = set()  # 本通是否已自动查过回访（拿到车牌/手机时后端自动查一次）
+_CALL_START: dict[str, float] = {}  # call_id → 首次交互时刻（monotonic），算 25s 送达耗时
 
 
 def _slots(call_id: str) -> VisitSlots:
@@ -104,9 +106,10 @@ async def do_finish(call_id: str, args: dict) -> str:
     s = _slots(call_id)
     if not s.complete():
         return f"还不能提交，缺：{'、'.join(s.missing())}。请先补齐再调本工具。"
-    vid = await memory.save_visit(call_id, s)
+    elapsed = time.monotonic() - _CALL_START[call_id] if call_id in _CALL_START else None
+    vid = await memory.save_visit(call_id, s, elapsed_s=elapsed)
     try:
-        await wecom_notify(s)  # WECOM_WEBHOOK_URL 未配置时抛错 → demo 降级为记录
+        await wecom_notify(s, elapsed_s=elapsed)  # WECOM_WEBHOOK_URL 未配置时抛错 → demo 降级为记录
     except Exception:
         log.info("推送通道未配置，demo 记录：%s", s.brief())
     who = (s.visitor_name or "").strip()
@@ -133,6 +136,7 @@ async def vapi_tools(secret: str, req: Request) -> dict:
     body = await req.json()
     msg = body.get("message", body)
     call_id = (msg.get("call") or {}).get("id") or msg.get("callId") or "vapi-unknown"
+    _CALL_START.setdefault(call_id, time.monotonic())  # 首次交互 = 25s 计时起点
     tr = trace.Tracer(call_id)
     calls = msg.get("toolCallList") or msg.get("toolCalls") or []
     results = []
@@ -164,6 +168,7 @@ async def vapi_events(secret: str, req: Request) -> dict:
     if msg.get("type") in ("end-of-call-report", "hang", "call.ended"):
         _SLOTS.pop(call_id, None)
         _LOOKED_UP.discard(call_id)
+        _CALL_START.pop(call_id, None)
     return {"ok": True}
 
 

@@ -44,8 +44,11 @@ async def lookup_returning_visitor(plate: str = "", phone: str = "") -> dict | N
     return dict(row) if row else None
 
 
-async def save_visit(call_id: str, s: VisitSlots) -> int:
-    """落访问事件 + 解析/建访客(按手机) + 记录车辆(一人多车)。返回 visit_id。"""
+async def save_visit(call_id: str, s: VisitSlots, elapsed_s: float | None = None) -> int:
+    """落访问事件 + 解析/建访客(按手机) + 记录车辆(一人多车)。返回 visit_id。
+
+    elapsed_s：接通→保安送达耗时（25s SLA 指标），落库供值守台/对账展示。
+    """
     p = await pool()
     summary = f"{s.visitor_name or '访客'}，常来{s.company}{s.purpose}"
     async with p.acquire() as conn, conn.transaction():
@@ -73,9 +76,9 @@ async def save_visit(call_id: str, s: VisitSlots) -> int:
             )
         # 3) 落访问事件
         visit_id = await conn.fetchval(
-            """INSERT INTO visits (call_id, visitor_id, plate, company, phone, purpose, visitor_name)
-               VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id""",
-            call_id, visitor_id, s.plate, s.company, s.phone, s.purpose, s.visitor_name,
+            """INSERT INTO visits (call_id, visitor_id, plate, company, phone, purpose, visitor_name, elapsed_s)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id""",
+            call_id, visitor_id, s.plate, s.company, s.phone, s.purpose, s.visitor_name, elapsed_s,
         )
     return visit_id
 
