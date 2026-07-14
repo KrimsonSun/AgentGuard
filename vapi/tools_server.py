@@ -60,9 +60,17 @@ async def do_lookup(call_id: str, args: dict) -> str:
     if not prof:
         return "无历史记录，按新访客采集。"
     s = _slots(call_id)
-    s.visitor_name = prof.get("visitor_name")
-    return (f"回访：{prof.get('visitor_name') or '老访客'}，车牌{prof['plate']}，"
-            f"常来{prof['usual_company']}{prof['usual_purpose']}，累计{prof['visit_count']}次。请确认后提交。")
+    # 预填历史值 → 确认后可直接提交，真正做到"不重复问"（含手机号）
+    s.visitor_name = prof.get("visitor_name") or s.visitor_name
+    s.plate = prof.get("plate") or s.plate
+    s.phone = prof.get("phone") or s.phone
+    s.company = prof.get("usual_company") or s.company
+    s.purpose = prof.get("usual_purpose") or s.purpose
+    who = prof.get("visitor_name") or "老客"
+    return (f"回访命中：{who}，车牌{prof['plate']}，手机{prof.get('phone')}，常来{prof['usual_company']}"
+            f"{prof['usual_purpose']}，累计{prof['visit_count']}次。历史信息已预填好。"
+            f"请用称呼一句话确认（如『{who}，还是来{prof['usual_company']}{prof['usual_purpose']}吧？』），"
+            f"对方确认就直接 finish_registration，【不要重复问手机号等已知项】。")
 
 
 async def do_finish(call_id: str, args: dict) -> str:
