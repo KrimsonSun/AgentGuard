@@ -1,7 +1,7 @@
 """Vapi tools webhook —— Vapi 调用我们的工具时打这里，落到 Neon（记忆/回访/对账）。
 
 我们的差异化全在这层：Vapi 只管电话+STT+TTS+打断，大脑(OpenRouter)和工具(这里)是我们的。
-换回自建 LiveKit 时，这套工具逻辑原样复用。
+工具逻辑与媒体层解耦：换任何媒体层都可原样复用（自建 LiveKit 方案已评估后退役，见 docs/HANDOFF.md）。
 
 启动：uvicorn vapi.tools_server:app --port 8200
 Vapi 需公网可达 → 本地用隧道：cloudflared tunnel --url http://localhost:8200

@@ -1,11 +1,9 @@
-# 门卫 Agent worker（Python 3.11+）
-# 注意：livekit-agents 迭代快，Day1 spike 时以当前版本文档校准插件接线
-livekit-agents[openai,silero]~=1.2   # 编排 + VAD/turn detection + OpenAI兼容LLM层(→OpenRouter)
-asyncpg~=0.30                        # Neon Postgres（visits/profiles/usage_ledger/app_config）
-httpx~=0.28                          # 企业微信 webhook / OpenRouter /generation 对账
+# AgentGuard 运行时依赖（Python 3.11+）
+# 语音 I/O 由 Vapi 托管（Azure STT/TTS），本仓库不含媒体栈。
+# LiveKit 自建媒体层已评估后退役，见 docs/HANDOFF.md（P1→P2 演进）。
+asyncpg~=0.30          # Neon Postgres（visitors/vehicles/visits/usage_ledger/app_config）
+httpx~=0.28            # 企业微信 webhook / OpenRouter 代理与 /generation 对账
 python-dotenv~=1.0
-fastapi>=0.115                       # admin console（模型切换 / 访客查询 / trace）
+fastapi>=0.115         # tools_server（custom-llm 代理 + 工具）+ admin console
 uvicorn[standard]>=0.30
-openai>=1.50                         # OpenRouter(OpenAI兼容)客户端：门卫查询Agent / 大脑
-# STT/TTS 插件 Day1 双方向实测后定稿加入，例如：
-# livekit-plugins-deepgram / livekit-plugins-cartesia / 国内厂商自写插件
+openai>=1.50           # OpenRouter(OpenAI 兼容)：门卫查询 Agent / 大脑

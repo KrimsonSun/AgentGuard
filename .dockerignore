@@ -1,0 +1,15 @@
+# 别把这些打进镜像
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+.git/
+.github/
+experiments/
+docs/
+*.md
+Dockerfile
+.dockerignore
+fly.toml

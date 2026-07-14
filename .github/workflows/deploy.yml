@@ -1,0 +1,32 @@
+name: CI/CD
+
+# 云原生 CI/CD（对应题目示例的 GitHub Actions）：push 跑测试，main 通过后自动部署 Fly。
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: import 冒烟测试（活跃模块可加载）
+        run: python -c "import vapi.tools_server, admin.server, app.memory, app.slots, app.wecom; print('import ok')"
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    concurrency: deploy-group           # 避免并发部署互相踩
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
