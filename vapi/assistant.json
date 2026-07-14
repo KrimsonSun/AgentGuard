@@ -18,6 +18,10 @@
       {
         "type": "function",
         "server": { "url": "<VAPI_TOOLS_URL>/vapi/<VAPI_SECRET>/tools" },
+        "messages": [
+          { "type": "request-start", "content": "好嘞" },
+          { "type": "request-response-delayed", "content": "好的，稍等一下", "timingMilliseconds": 1500 }
+        ],
         "function": {
           "name": "update_slots",
           "description": "记录司机这句话给出的登记信息，给了几项传几项",
@@ -30,6 +34,9 @@
       {
         "type": "function",
         "server": { "url": "<VAPI_TOOLS_URL>/vapi/<VAPI_SECRET>/tools" },
+        "messages": [
+          { "type": "request-start", "content": "好的，稍等" }
+        ],
         "function": { "name": "finish_registration",
           "description": "四项(车牌/单位/手机/事由)收齐后必须调用：一步完成登记入库+通知门卫，并返回要念给司机的结束语",
           "parameters": { "type": "object", "properties": {} } }

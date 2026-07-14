@@ -70,6 +70,9 @@ async def do_update_slots(call_id: str, args: dict) -> str:
             s.phone = s.phone or prof.get("phone")
             s.company = s.company or prof.get("usual_company")
             s.purpose = s.purpose or prof.get("usual_purpose")
+            # 靠手机命中但车牌听花了 → 用历史车牌，避免同一人裂成多条画像
+            if prof.get("plate") and not VisitSlots.valid_plate(s.plate or ""):
+                s.plate = prof["plate"]
             result += (f"\n【回访命中·已预填历史】{who}，常来{prof['usual_company']}{prof['usual_purpose']}"
                        f"，手机{prof.get('phone')}，累计{prof['visit_count']}次。"
                        f"请用称呼一句确认（如『{who}，还是来{prof['usual_company']}{prof['usual_purpose']}吧？』），"
