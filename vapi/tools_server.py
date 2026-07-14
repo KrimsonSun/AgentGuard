@@ -27,6 +27,7 @@ app = FastAPI(title="AgentGuard Vapi Tools")
 
 # 单次通话的工作记忆（call_id → slots）。单实例 demo 用内存即可；多实例可挪到 Redis/PG。
 _SLOTS: dict[str, VisitSlots] = {}
+_LOOKED_UP: set[str] = set()  # 本通是否已自动查过回访（拿到车牌/手机时后端自动查一次）
 
 
 def _slots(call_id: str) -> VisitSlots:
@@ -35,23 +36,45 @@ def _slots(call_id: str) -> VisitSlots:
 
 # ---------- 工具实现（复用 app/ 的记忆与校验）----------
 async def do_update_slots(call_id: str, args: dict) -> str:
-    """接受 STT 原始输出，绝不硬拒（车牌/手机 STT 易错，靠复述确认而非打回，避免反复追问）。"""
+    """记录 STT 原始输出（绝不硬拒，靠复述确认）+ 拿到车牌/手机时【后端自动查回访】。
+
+    回访不再是模型要记得调的独立工具，而是记录时的自动行为 → 消除"先记还是先查"的顺序 bug。
+    """
     s = _slots(call_id)
     notes = []
+    got_id = False
     if args.get("plate"):
         p = normalize_plate(args["plate"])
         s.plate = p
+        got_id = True
         if not VisitSlots.valid_plate(p):
             notes.append(f"车牌暂记「{p}」，请一字一字向司机复述确认，对方纠正就改")
     if args.get("phone"):
         ph = normalize_phone(args["phone"])
         s.phone = ph
+        got_id = True
         if not VisitSlots.valid_phone(ph):
             notes.append(f"手机号暂记「{ph}」(非11位)，请向司机确认")
     for k in ("company", "purpose", "visitor_name"):
         if args.get(k):
             setattr(s, k, str(args[k]).strip())
-    return s.brief() + (" | " + "；".join(notes) if notes else "")
+    result = s.brief() + (" | " + "；".join(notes) if notes else "")
+
+    # 自动回访：本通首次拿到车牌/手机 → 查历史，命中则预填并提示确认
+    if got_id and call_id not in _LOOKED_UP:
+        _LOOKED_UP.add(call_id)
+        prof = await memory.lookup_returning_visitor(plate=s.plate or "", phone=s.phone or "")
+        if prof:
+            who = prof.get("visitor_name") or "老客"
+            s.visitor_name = s.visitor_name or prof.get("visitor_name")
+            s.phone = s.phone or prof.get("phone")
+            s.company = s.company or prof.get("usual_company")
+            s.purpose = s.purpose or prof.get("usual_purpose")
+            result += (f"\n【回访命中·已预填历史】{who}，常来{prof['usual_company']}{prof['usual_purpose']}"
+                       f"，手机{prof.get('phone')}，累计{prof['visit_count']}次。"
+                       f"请用称呼一句确认（如『{who}，还是来{prof['usual_company']}{prof['usual_purpose']}吧？』），"
+                       f"确认就直接 finish_registration，【不要重复问已知项】。")
+    return result
 
 
 async def do_lookup(call_id: str, args: dict) -> str:
@@ -137,6 +160,7 @@ async def vapi_events(secret: str, req: Request) -> dict:
     call_id = (msg.get("call") or {}).get("id") or "vapi-unknown"
     if msg.get("type") in ("end-of-call-report", "hang", "call.ended"):
         _SLOTS.pop(call_id, None)
+        _LOOKED_UP.discard(call_id)
     return {"ok": True}
 
 
