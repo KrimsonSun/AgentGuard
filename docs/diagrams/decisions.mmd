@@ -33,8 +33,10 @@ flowchart TD
     %% ---- 媒体/电话（演进）----
     ROOT --> P{"媒体/电话层"}
     P --> P1["v1 自建 LiveKit + Twilio §3<br/>前提：用户在国内"]:::super
-    P1 -->|"用户在美国 → 超越"| P2["Vapi 托管媒体 §12<br/>电话+STT+TTS+打断，自带发号"]:::pick
+    P1 -->|"用户在美国 → 超越"| P2["Vapi 托管媒体 §12<br/>电话+STT+LLM+TTS+打断，自带发号"]:::pick
     P2 --> P3["平台 5→3 · 差异化全保留<br/>Vapi tools 打 Neon 后端"]:::pick
+    P2 --> P4["Vapi 自带 LLM，我们用 custom-llm 劫持指向我方代理 §13<br/>低耦合 · key与对账在我方 · 随时迁火山/LiveKit"]:::pick
+    P4 -.成本.-> P5["Vapi ≈ 2.5–3× 自建 · 差额=平台费 $0.05/min<br/>单门卫年差百元级 · 规模化才转自建"]:::note
 
     %% ---- 保安推送 ----
     ROOT --> W{"保安推送 §4"}
@@ -50,3 +52,15 @@ flowchart TD
     classDef pick fill:#15803d,stroke:#22c55e,color:#ffffff
     classDef drop fill:#374151,stroke:#9ca3af,color:#d1d5db,stroke-dasharray:5
     classDef super fill:#b45309,stroke:#f59e0b,color:#ffffff,stroke-dasharray:5
+    classDef note fill:#fff7cc,stroke:#e8a302,color:#5a4a00
+
+%% ===================== 成本表（决策12/§13 依据）=====================
+%% 同用便宜 provider，全算下来：自建 ~$0.03/min vs Vapi ~$0.08/min，差额=Vapi 平台费 $0.05/min。
+%% 按每通 30 秒（15 秒则各项减半）：
+%%   车流/天 | 自建/年 | Vapi/年 | 差额/月 | 差额/年
+%%      20   |  $110   |  $292   |  $15    |  $182
+%%      50   |  $274   |  $730   |  $38    |  $456
+%%     100   |  $548   | $1460   |  $75    |  $912
+%%     200   | $1095   | $2920   | $150    | $1825
+%% 结论：单门卫量级绝对差额百元级（不大），仅百分比(~2.6×)看着高；规模化才是转自建的触发阈值。
+%% ==================================================================

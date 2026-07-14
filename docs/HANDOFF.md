@@ -270,6 +270,27 @@
 
 ---
 
+## 决策 13（2026-07-13）— 劫持 Vapi 的 LLM 端指向我方 custom-llm 代理（低耦合/可移植）
+
+**背景**：Vapi **自带整套** telephony+STT+**LLM**+TTS（默认助手用 `provider:openai, model:gpt-4.1`）。若直接用 Vapi 的 LLM，
+大脑逻辑就绑死在 Vapi 里，且要把 OpenRouter 凭证交给 Vapi。
+
+**决策**：把 assistant 的 `model` 设为 `provider: custom-llm, url: <tunnel>/vapi`，指向**我方后端的透明代理**
+（`vapi/tools_server.py` 的 `/vapi/chat/completions`），代理注入 OpenRouter key 转发到 OpenRouter；工具则走 `/vapi/tools` 打 Neon。
+
+**为什么（答辩要点）**：
+1. **低耦合 / 可随时迁移**：大脑(LLM+prompt)、记忆、回访、工具、对账**全在我方后端**；Vapi 退化为"可替换的前置媒体层"。
+   迁到**火山 / 自建 LiveKit** 时**只换前面那层，后端一行不改**——custom-llm 代理 + tools webhook 就是那道可插拔的缝。
+2. **key 与对账在我方**：OpenRouter 凭证 Vapi 碰不到；每次 LLM 调用经我方代理，token/成本对账可在此统一采集。
+3. **模型自主**：用我们选定的 gemini-2.5-flash-lite（§7），不被 Vapi 的模型菜单绑定。
+
+**代价**：多一跳（Vapi→我方代理→OpenRouter，~50–150ms）；我方后端需公网可达（隧道/部署）。
+
+**已实测打通**：schema 创建 201、代理经隧道→OpenRouter 通、助手创建、Vapi 免费号 +16504510384 绑定。
+**成本**：见决策12 表 + `docs/diagrams/decisions.mmd` 成本表注释（Vapi≈2.5–3×自建，规模化才转自建）。
+
+---
+
 ## 未决项 / 待确认
 
 - [ ] 题目实际收到日（校准 Day 7 截止）——问对接人。
