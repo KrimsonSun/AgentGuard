@@ -17,9 +17,9 @@ async def main():
     for tbl in ("call_traces", "usage_ledger", "visits"):
         for pfx in PREFIXES:
             await c.execute(f"DELETE FROM {tbl} WHERE call_id LIKE $1", pfx)
-    # 画像按是否还有对应 visits 判断（简单起见：清掉不再有 visits 的画像）
-    await c.execute("DELETE FROM visitor_profiles p WHERE NOT EXISTS (SELECT 1 FROM visits v WHERE v.plate=p.plate)")
-    for tbl in ("visits", "visitor_profiles", "usage_ledger", "call_traces"):
+    # 清掉不再有 visits 的访客（cascade 删其车辆）
+    await c.execute("DELETE FROM visitors v WHERE NOT EXISTS (SELECT 1 FROM visits vi WHERE vi.visitor_id = v.id)")
+    for tbl in ("visits", "visitors", "vehicles", "usage_ledger", "call_traces"):
         n = await c.fetchval(f"SELECT count(*) FROM {tbl}")
         print(f"  {tbl}: {n} 行")
     await c.close()

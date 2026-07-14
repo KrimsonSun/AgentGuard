@@ -9,6 +9,7 @@ flowchart TD
     ROOT --> M{"记忆架构 §1"}
     M -->|采纳| M1["精简 Postgres + 图-lite<br/>结构化不可变事件 → 精确 SQL"]:::pick
     M -.否.-> M2["完整图记忆 Zep/Graphiti<br/>过度设计·聚合更慢更不准"]:::drop
+    M1 --> M3["身份模型规范化 §18<br/>手机为主+surrogate id+一人多车(visitors/vehicles)<br/>根治车牌听花的画像分裂"]:::pick
 
     %% ---- 大脑 ----
     ROOT --> B{"Agent 形态 §6"}

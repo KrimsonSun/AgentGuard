@@ -124,7 +124,7 @@ async def stats() -> dict:
     by_hour = await p.fetch("SELECT extract(hour FROM entered_at)::int h, count(*) c FROM visits GROUP BY h ORDER BY c DESC")
     by_company = await p.fetch("SELECT company, count(*) c FROM visits GROUP BY company ORDER BY c DESC")
     by_purpose = await p.fetch("SELECT purpose, count(*) c FROM visits GROUP BY purpose ORDER BY c DESC")
-    top = await p.fetch("SELECT visitor_name, plate, visit_count, usual_company FROM visitor_profiles ORDER BY visit_count DESC LIMIT 5")
+    top = await p.fetch("SELECT visitor_name, phone, visit_count, usual_company FROM visitors ORDER BY visit_count DESC LIMIT 5")
     peak = by_hour[0]["h"] if by_hour else None
     return {
         "total": total, "this_week": week,
@@ -141,9 +141,12 @@ class Ask(BaseModel):
 
 _FORBIDDEN = re.compile(r"\b(insert|update|delete|drop|alter|truncate|grant|revoke|create|copy)\b|;|--|/\*|pg_", re.I)
 _SCHEMA_HINT = (
-    "表 visits(plate 车牌, company 来访单位, phone 手机号, purpose 来访事由, visitor_name 称呼, entered_at 入场时间)；"
-    "表 visitor_profiles(plate, phone, visitor_name, usual_company 常访单位, usual_purpose 常访事由, "
-    "visit_count 累计来访次数, last_visit_at 最近来访)。今天是 2026-07-13。"
+    "表 visits(id, visitor_id 归属访客, plate 车牌, company 来访单位, phone 手机号, purpose 来访事由, visitor_name 称呼, entered_at 入场时间)；"
+    "表 visitors(id, phone 手机=身份, visitor_name 称呼, usual_company 常访单位, usual_purpose 常访事由, visit_count 累计来访次数, last_visit_at 最近来访)；"
+    "表 vehicles(id, visitor_id, plate 车牌)——一人可多车。"
+    "按人计次用 visitors.visit_count；按车/按事由拆分用 visits 表 GROUP BY。"
+    "注意：『某人来了几次』要取该访客的 visit_count（或按 visits 行数计），不是数 visitors 表的行数。"
+    "今天是 2026-07-14。"
 )
 
 

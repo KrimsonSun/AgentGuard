@@ -365,6 +365,25 @@
 
 ---
 
+## 决策 18（2026-07-14）— 身份模型规范化：手机为主 + surrogate id + 一人多车
+
+**触发（用户）**："手机为主更好（车/司机经常换，手机稳）；但得有个 index 列，不然二次开发容易烂。"
+
+**问题**：旧 `visitor_profiles` 以**车牌**作主键 → ① 车牌被 STT 听花就把同一人裂成多条画像（真机实测：鄂AVK696 vs 2AVK696 两条张先生）；② 自然键当主键，FK/迁移绑死在会变的值上。
+
+**决策（规范化，3NF）**：
+- `visitors`(**id BIGSERIAL 主键** surrogate + **phone UNIQUE** 身份自然键 + name/visit_count/usual_*/summary)——身份=手机，计次按人。
+- `vehicles`(id, visitor_id FK, plate, UNIQUE(visitor_id,plate))——**一人可多车**（司机换车/换号历史都在）。
+- `visits` 加 `visitor_id` FK。
+- `memory.lookup`：手机为主、车牌经 vehicles 兜底；`save_visit`：按手机 upsert visitor → upsert vehicle → 落 visit。
+
+**验证**：按手机查✓ 按车牌查(vehicles)✓ 新访客建 visitor+vehicle+visit✓；种子张先生 3 次/2 车；
+console 门卫查询新 schema："张先生来了几次→3"、"名下几辆车→2"、"本周送货→4"（NL→SQL hint 加"某人来了几次取 visit_count 非数行数"钉死）。
+
+**意义**：身份不绑会变的值、一人多车正确建模、计次按人——二次开发不烂；同时根治车牌听花导致的画像分裂。改动：schema+memory+seed+reset+console 已全部跟进。
+
+---
+
 ## 未决项 / 待确认
 
 - [ ] 题目实际收到日（校准 Day 7 截止）——问对接人。

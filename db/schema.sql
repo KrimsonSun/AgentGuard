@@ -4,11 +4,36 @@
 
 CREATE EXTENSION IF NOT EXISTS vector;  -- 图-lite：pgvector（Neon 内置可用）
 
--- ============ 访问事件（不可变历史，驱动统计与回访） ============
+-- ============ 访客身份（手机为主，surrogate id 主键；决策18） ============
+-- 用 id 做主键、phone 做唯一自然键：身份不绑在"会变的值"上，FK/迁移/二次开发不烂。
+CREATE TABLE IF NOT EXISTS visitors (
+  id             BIGSERIAL PRIMARY KEY,
+  phone          TEXT UNIQUE NOT NULL,             -- 身份主键（11位数字 STT 更稳，贴合"某人几次"）
+  visitor_name   TEXT,
+  usual_company  TEXT,                             -- 最近来访单位
+  usual_purpose  TEXT,                             -- 最近事由
+  visit_count    INT NOT NULL DEFAULT 1,
+  last_visit_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  summary        TEXT                              -- 注入 LLM 的一句话压缩摘要
+);
+
+-- ============ 车辆（一人可多车：司机/车经常换） ============
+CREATE TABLE IF NOT EXISTS vehicles (
+  id          BIGSERIAL PRIMARY KEY,
+  visitor_id  BIGINT NOT NULL REFERENCES visitors(id) ON DELETE CASCADE,
+  plate       TEXT NOT NULL,
+  first_seen  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (visitor_id, plate)
+);
+CREATE INDEX IF NOT EXISTS idx_vehicles_plate ON vehicles (plate);
+
+-- ============ 访问事件（不可变历史，驱动统计） ============
 CREATE TABLE IF NOT EXISTS visits (
   id            BIGSERIAL PRIMARY KEY,
   call_id       TEXT NOT NULL,                     -- 关联一通通话
-  plate         TEXT NOT NULL,                     -- 车牌号，如 沪A12345
+  visitor_id    BIGINT REFERENCES visitors(id),    -- 归属访客（决策18）
+  plate         TEXT NOT NULL,                     -- 本次车牌快照
   company       TEXT NOT NULL,                     -- 来访单位
   phone         TEXT NOT NULL,                     -- 手机号
   purpose       TEXT NOT NULL,                     -- 来访事由
@@ -18,19 +43,7 @@ CREATE TABLE IF NOT EXISTS visits (
 );
 CREATE INDEX IF NOT EXISTS idx_visits_plate    ON visits (plate);
 CREATE INDEX IF NOT EXISTS idx_visits_entered  ON visits (entered_at);
-
--- ============ 访客画像（回访识别 = O(1) 点查，save_visit 时 upsert） ============
-CREATE TABLE IF NOT EXISTS visitor_profiles (
-  plate          TEXT PRIMARY KEY,
-  phone          TEXT,
-  visitor_name   TEXT,
-  usual_company  TEXT,                             -- 最常来访单位
-  usual_purpose  TEXT,                             -- 最常事由
-  visit_count    INT NOT NULL DEFAULT 1,
-  last_visit_at  TIMESTAMPTZ NOT NULL,
-  summary        TEXT                              -- 注入 LLM 的一句话压缩摘要（工作记忆边界）
-);
-CREATE INDEX IF NOT EXISTS idx_profiles_phone ON visitor_profiles (phone);
+CREATE INDEX IF NOT EXISTS idx_visits_visitor  ON visits (visitor_id);
 
 -- ============ 运行时配置（admin console 写；agent 每通电话开始读一次，通话内固定） ============
 CREATE TABLE IF NOT EXISTS app_config (

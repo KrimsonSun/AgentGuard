@@ -69,7 +69,7 @@ async def main():
                 if res["ok"] and spec["need"].issubset(got): succ += 1
                 if res["ft"]: fts.append(res["ft"])
                 for t in ("call_traces", "usage_ledger", "visits"): await c.execute(f"DELETE FROM {t} WHERE call_id=$1", cid)
-            await c.execute("DELETE FROM visitor_profiles WHERE plate IN ('沪B22345')")
+            await c.execute("DELETE FROM visitors WHERE phone IN ('13800001111','13800002222')")
             avg = f"{sum(fts)/len(fts):.2f}s" if fts else "-"
             print(f"{model:<30}{scen:<16}{f'{succ}/{RUNS}':>10}{avg:>9}")
     await c.close()
