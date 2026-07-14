@@ -65,28 +65,25 @@ async def do_lookup(call_id: str, args: dict) -> str:
             f"常来{prof['usual_company']}{prof['usual_purpose']}，累计{prof['visit_count']}次。请确认后提交。")
 
 
-async def do_save_visit(call_id: str, args: dict) -> str:
+async def do_finish(call_id: str, args: dict) -> str:
+    """原子完成：登记入库 + 通知门卫 + 返回要念的结束语（一步，防幻觉收尾/少一次往返）。"""
     s = _slots(call_id)
     if not s.complete():
-        return f"还不能提交，缺：{'、'.join(s.missing())}"
+        return f"还不能提交，缺：{'、'.join(s.missing())}。请先补齐再调本工具。"
     vid = await memory.save_visit(call_id, s)
-    return f"已登记（单号{vid}）。现在调 notify_guard。"
-
-
-async def do_notify_guard(call_id: str, args: dict) -> str:
-    s = _slots(call_id)
     try:
-        await wecom_notify(s)  # WECOM_WEBHOOK_URL 未配置时会抛错 → demo 下降级为记录
+        await wecom_notify(s)  # WECOM_WEBHOOK_URL 未配置时抛错 → demo 降级为记录
     except Exception:
         log.info("推送通道未配置，demo 记录：%s", s.brief())
-    return "已通知门卫，请稍等放行。"
+    who = (s.visitor_name or "").strip()
+    line = f"好的{who}！{s.plate}，{s.company}{s.purpose}，已通知门卫，请稍等放行。"
+    return f"登记成功(单号{vid})。请一字不差把这句念给司机作为结束：{line}"
 
 
 HANDLERS = {
     "update_slots": do_update_slots,
     "lookup_returning_visitor": do_lookup,
-    "save_visit": do_save_visit,
-    "notify_guard": do_notify_guard,
+    "finish_registration": do_finish,
 }
 
 
