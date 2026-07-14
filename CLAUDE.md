@@ -30,7 +30,8 @@ docs/           # 规划/决策/对账/图（本套 harness）
 ## 文档维护纪律
 
 - 完成一项 → 勾掉 [TODO](docs/TODO.md)，追加 [PROGRESS](docs/PROGRESS.md)（含 AI 辅助编码的关键决策/审查点，答辩要考）。
-- 做出技术决策 → 追加 [HANDOFF](docs/HANDOFF.md) 一条 ADR（选了什么/为什么/放弃什么/代价）。
+- **做出技术决策 → 两处同步**：① [HANDOFF](docs/HANDOFF.md) 追加一条 ADR §N（选了什么/为什么/放弃什么/代价）；
+  ② [decisions.mmd](docs/diagrams/decisions.mmd) 加一个节点并标 §N（绿=采纳/灰=否决/橙=被超越）。决策被推翻时，旧节点改橙、连线标触发原因。
 - 遇到坑（尤其电话接入）→ 如实记 HANDOFF，答辩讲"尝试了什么、卡在哪"。
 
 ## 硬约束回顾（验收）

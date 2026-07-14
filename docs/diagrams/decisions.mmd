@@ -1,0 +1,52 @@
+%% AgentGuard 关键决策树
+%% 纪律：每做一个决策点 → 这里加节点 + docs/HANDOFF.md 追加对应 ADR(§N)，两者同步。
+%% 图例：绿=采纳 / 灰虚线=否决 / 橙虚线=已被超越(演进)
+%% 渲染：mermaid.live 或 VS Code Mermaid 插件
+flowchart TD
+    ROOT(["AgentGuard · 语音门卫 Agent 关键决策"])
+
+    %% ---- 记忆 ----
+    ROOT --> M{"记忆架构 §1"}
+    M -->|采纳| M1["精简 Postgres + 图-lite<br/>结构化不可变事件 → 精确 SQL"]:::pick
+    M -.否.-> M2["完整图记忆 Zep/Graphiti<br/>过度设计·聚合更慢更不准"]:::drop
+
+    %% ---- 大脑 ----
+    ROOT --> B{"Agent 形态 §6"}
+    B -->|采纳| B1["单 Agent + 工具调用<br/>轻量·上下文边界清晰"]:::pick
+    B -.否.-> B2["multi-agent 编排"]:::drop
+    B1 --> B3{"模型选型 §7"}
+    B3 -->|数据选| B3a["gemini-2.5-flash-lite<br/>brain_test 0.74s/4轮/收齐"]:::pick
+    B3 -.否.-> B3b["deepseek 慢 · glm 幻觉 · qwen 轮次多"]:::drop
+    B3a --> B4["运行时切换 app_config + console<br/>快而非聪明"]:::pick
+
+    %% ---- 语音处理 ----
+    ROOT --> V{"语音链路 §2"}
+    V -->|采纳| V1["链式 STT→LLM(OpenRouter)→TTS<br/>读/写 token 对账干净"]:::pick
+    V -.否.-> V2["端到端 Speech-to-Speech"]:::drop
+    V1 --> V3{"STT/TTS 接法 §8"}
+    V3 -->|纠正后采纳| V3a["专用流式服务(带 LiveKit 插件)"]:::pick
+    V3 -.否·延迟.-> V3b["OpenRouter 音频端点(批处理)<br/>转写堆到关键路径·已纠正"]:::drop
+    V3a --> V4{"托管 or 自部署 §11"}
+    V4 -->|采纳| V4a["云 API·不自部署<br/>本机不吃 GPU"]:::pick
+    V4 -.生产再议.-> V4b["自部署 GPU<br/>(延迟/高并发/隐私 才划算)"]:::drop
+
+    %% ---- 媒体/电话（演进）----
+    ROOT --> P{"媒体/电话层"}
+    P --> P1["v1 自建 LiveKit + Twilio §3<br/>前提：用户在国内"]:::super
+    P1 -->|"用户在美国 → 超越"| P2["Vapi 托管媒体 §12<br/>电话+STT+TTS+打断，自带发号"]:::pick
+    P2 --> P3["平台 5→3 · 差异化全保留<br/>Vapi tools 打 Neon 后端"]:::pick
+
+    %% ---- 保安推送 ----
+    ROOT --> W{"保安推送 §4"}
+    W -->|采纳| W1["企业微信群机器人 webhook"]:::pick
+    W1 -.->|"用户在美国"| W2["暂搁置 · 待美国友好通道"]:::super
+
+    %% ---- 工程/平台 ----
+    ROOT --> E{"工程 / 平台"}
+    E -->|采纳| E1["混合 Serverless §5<br/>媒体托管 + 其余 serverless"]:::pick
+    E -->|采纳| E2["可观测：trace 双写 Neon+JSONL<br/>+ 门卫查询 console §9"]:::pick
+    E -->|采纳| E3["回访：来电号优先 + 报车牌兜底<br/>+ 确认闸门(防幻觉) §10"]:::pick
+
+    classDef pick fill:#15803d,stroke:#22c55e,color:#ffffff
+    classDef drop fill:#374151,stroke:#9ca3af,color:#d1d5db,stroke-dasharray:5
+    classDef super fill:#b45309,stroke:#f59e0b,color:#ffffff,stroke-dasharray:5
