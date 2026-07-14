@@ -13,13 +13,16 @@
 
 ## 平台与环境（凭证一律在 `.env`，本仓库不含任何密文）
 
+> 架构已转向 **Vapi 托管媒体层**（决策12，用户在美国）。平台从 5 个简化到 3 个核心。
+
 | 平台 | 用途 | 状态 | 免费 |
 |---|---|---|---|
+| **Vapi** | 电话+STT+TTS+打断（自带发号；内选 Azure/OpenAI 中文语音） | ⬜ 待注册拿 key | $10 免费额度 |
 | OpenRouter | LLM 大脑 | ✅ 有效 | 按量，全程 <$5 |
-| Neon Postgres | 记忆/台账/运行时配置 | ✅ 已接通建表 | ✅ 免费档 |
-| LiveKit Cloud | 实时媒体 + WebRTC 呼入 | ⚠️ 待补 API Secret | ✅ 免费档 |
-| 企业微信群机器人 | 保安推送 | ⬜ 待自建 | ✅ 免费 |
-| 中文流式 STT/TTS | 识别/合成 | ⬜ Day1 实测选 | 按量 |
+| Neon Postgres | 记忆/台账/运行时配置/trace/门卫查询 | ✅ 已接通建表 | ✅ 免费档 |
+| ~~Twilio~~ | ~~电话~~ | Vapi 自带发号，不单独开 | — |
+| ~~火山/LiveKit~~ | ~~媒体/STT/TTS~~ | 决策12 由 Vapi 承接 | — |
+| 保安推送 | 企业微信（暂搁置）或美国友好通道 | ⬜ 后置 | — |
 | CF Workers / GH Actions | 门卫查询API / CI（加分） | ⬜ Day6 | ✅ 公开仓库免费 |
 
 > 环境变量清单见 `.env.example`；私密凭证与账号交接见 repo 外的 `~/Documents/Git/Yijun/`。
@@ -220,6 +223,25 @@
 - 阿里(Paraformer/CosyVoice)：中文并列第一，但**无现成 LiveKit 插件（要自写）**，是唯一摩擦点。
 - Deepgram：流式延迟标杆但**中文弱 + 跨境延迟 + 仅STT + 需国际支付** → 最差匹配，留作对比基线。
 - **最终以 bench 实测为准**（车牌准确率是硬指标，见 experiments/README voxtral 基线 0/2 的教训）。
+
+---
+
+## 决策 12（2026-07-13）— 媒体层改用 Vapi（用户在美国，超越决策2/3的媒体部分）
+
+**触发**：用户人在美国（非国内）。推翻"你在国内"前提——火山要国内实名+跨境延迟不合适；Twilio 从美国反而好办；且用户想省事省钱、Vapi 保留我们全部差异化。
+
+**决策**：媒体层（电话+STT+TTS+打断）改用 **Vapi 托管**。**这只替换我们尚未建成的媒体管道，差异化全保留**：
+- LLM 大脑：Vapi 指向 **OpenRouter**（custom-LLM 或直连 + Vapi tools）→ token 对账照旧，Vapi 额外给整通成本拆解。
+- 记忆/回访/门卫查询：作为 **Vapi tools** 打我们的 Neon 后端。
+- trace / console：独立后端，不受影响。
+
+**平台从 5 个简化到 3 个**：Vapi（电话+STT+TTS，自带发号，$10 免费额度）+ OpenRouter（LLM）+ Neon（记忆/对账/trace/console）。
+- **Twilio**：不用单独开，Vapi 自带发号。
+- **火山/STT-TTS 独立账号**：不用开，Vapi 内选 provider；中文选 **Azure 语音**（美国可用、中文近母语）或 OpenAI/ElevenLabs，实测定。
+
+**取舍（答辩必讲，题目明确允许 Vapi 但要求解释）**：SaaS 承担媒体重活 → 媒体层工程展示少；我方工程判断力体现在**大脑/记忆/回访/对账/门卫查询**这些自建后端 + "为什么此处托管、彼处自建"的架构判断。延迟：Vapi ~0.8–1.2s/轮，25s（整通）轻松达标；custom-LLM 多一跳 ~50–150ms。成本：per-min 比自建火山贵 3–10×，但 demo 量级几美元、$10 额度覆盖，换来零媒体运维。
+
+**超越**：决策2（自建链式 vs SaaS）媒体部分改为 SaaS；其 LLM=OpenRouter、单Agent、对账 的理由仍成立。决策3（Twilio/呼入）媒体由 Vapi 承接（Vapi 底层仍是 Twilio/Telnyx，对我们透明）。
 
 ---
 
