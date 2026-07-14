@@ -1,57 +1,190 @@
-# AgentGuard · 语音门卫访客登记 Voice Agent
+# 🐳 AgentGuard · 语音门卫 Voice Agent
 
-驾驶员拨打园区张贴的号码 → AI 门卫自然对话采集访客信息 → 结构化推送至保安企业微信 → 确认放行。
-目标：从接通到微信送达 **< 25 秒**，对话**像真人门卫一样自然**（3 轮≈15 秒，非机械问答）。
+> 司机拨打园区号码 → AI 门卫「小鲸」**自然对话**采集访客信息(车牌 / 单位 / 手机 / 事由)→ 结构化落库并推到**保安值守台** → 门卫**一键放行**。
+> 目标:从接通到值守台收到 **< 25 秒**,对话**像真人门卫**(3 轮 ≈ 15 秒,非机械问答)。
 
-## 架构
+**🔴 Live Demo** — 拨打 **`+1 650-451-0384`** · 门卫台 Console `https://agentguard-yj.fly.dev:8443`(TOTP 登录)
+
+---
+
+## ✨ 亮点
+
+- **单 Agent + 工具调用**(非 multi-agent):上下文边界清晰、可靠、便宜。
+- **手机为主的规范化身份模型**(一人多车):根治「车牌听花 → 同一人被拆成多条画像」。
+- **值守台实时放行** + **对话式增改查(HITL 人工闸门)** + **自然语言查询(NL→SQL 只读)**。
+- **无密码 TOTP 2FA** + 服务端会话 + 5 分钟 5 次限速。
+- **Fly.io 常温部署** + **GitHub Actions CI/CD**(push 即自动部署)。
+- **读/写 token 精确对账**;媒体层与业务解耦(Vapi 今日在用,可无痛迁移)。
+
+---
+
+## 🏗️ 架构
 
 ```mermaid
 flowchart LR
-    U["📞 访客"] -->|"WebRTC链接(demo) · SIP/PSTN(生产) · 企微语音(通道2)"| LK["LiveKit<br/>媒体"]
-    LK --> STT["流式STT<br/>中文"] --> BRAIN["LLM大脑<br/>OpenRouter"] --> TTS["流式TTS<br/>中文"] --> LK
-    BRAIN <-->|回访/统计| DB[("Neon PG<br/>visits·profiles·ledger")]
-    BRAIN -->|notify_guard| WX["企业微信<br/>群机器人"]
-    BRAIN -.->|读/写 token 记账| DB
+    DRIVER["🚚 司机"] -->|"拨打 +1 650-451-0384"| VAPI
+
+    subgraph VAPI["Vapi · 托管媒体层"]
+        STT["👂 Azure STT 中文"]
+        TTS["👄 Azure TTS 晓晓"]
+        TURN["⏱️ 轮次 / 打断"]
+    end
+
+    subgraph FLY["Fly.io · iad(美东)· 常温单机"]
+        PROXY["🧠 custom-llm 代理 + 工具<br/>FastAPI :8200 · 公网 443"]
+        CONSOLE["🖥️ 门卫台 Console<br/>FastAPI :8100 · 公网 8443 · TOTP"]
+    end
+
+    VAPI -->|"custom-llm:每轮 LLM + 工具"| PROXY
+    PROXY -->|"注入 key · 读写 token 对账"| OR["OpenRouter<br/>gpt-4o-mini"]
+    PROXY -->|"update_slots · finish_registration"| NEON[("🗄️ Neon Postgres<br/>visitors · vehicles · visits")]
+    CONSOLE --> NEON
+    GUARD["👮 保安"] -->|"TOTP 登录 · 值守台放行"| CONSOLE
 ```
 
-> 完整架构图见 [`docs/diagrams/architecture.mmd`](docs/diagrams/architecture.mmd)。选型理由与 trade-off 见 [`docs/HANDOFF.md`](docs/HANDOFF.md)。
+**一句话选型**:媒体(电话+STT+TTS+打断)**租** Vapi;大脑(LLM+工具+数据)**自建**——通过 `custom-llm` 把 Vapi 的 LLM 劫持到我方代理,key 与对账留在自己手里,随时可迁。语音路径要求**不冷启动** → 选 PaaS 常温实例(Fly `min=1`)而非 scale-to-zero serverless。详见 [`docs/HANDOFF.md`](docs/HANDOFF.md) 与决策树 [`docs/diagrams/decisions.mmd`](docs/diagrams/decisions.mmd)。
 
-**一句话选型**：自建**链式** pipeline（STT→LLM→TTS）而非端到端语音——为了把 LLM 大脑收敛到 **OpenRouter**（统一计费、读/写 token 可精确对账）并对 slot 填充逻辑保留完全控制；记忆用**精简 Postgres**（结构化访问事件 + 精确聚合）而非图数据库，图-lite 层仅作能力展示。详见 HANDOFF。
+---
 
-## 部署步骤（本地）
+## 📞 一通电话的流程
+
+```mermaid
+sequenceDiagram
+    participant D as 🚚 司机
+    participant V as Vapi (STT/TTS)
+    participant P as 代理+工具 (Fly)
+    participant N as Neon
+    participant G as 👮 值守台
+
+    D->>V: 拨号,说「鄂AVK696,来云图送货」
+    V->>P: custom-llm(每轮)
+    P->>P: update_slots(先记后说,从不硬拒)
+    P->>N: 拿到车牌/手机 → 自动查回访
+    N-->>P: 命中老客 → 预填历史(不重复问)
+    P->>V: 「张师傅,还是来云图送货吧?」
+    D->>V: 「对」
+    V->>P: finish_registration(原子)
+    P->>N: 存访客(released=false · 记 25s 耗时)
+    P-->>V: 结束语「已通知门卫,请稍等放行」
+    Note over G: 值守台每 3 秒轮询
+    N-->>G: 新卡片「🔔 请放行」+ ⏱耗时
+    G->>N: 点「🔓 放行」→ released=true(占位真实操纵杆)
+```
+
+---
+
+## 🗄️ 数据模型
+
+```mermaid
+erDiagram
+    visitors ||--o{ vehicles : "一人多车"
+    visitors ||--o{ visits   : "每次访问归属到人"
+    admin_users ||--o{ admin_sessions : "登录会话"
+
+    visitors {
+        bigint id PK
+        text   phone UK "身份 = 手机(稳定)"
+        text   visitor_name
+        int    visit_count "按人计次"
+        timestamptz last_visit_at
+    }
+    vehicles {
+        bigint id PK
+        bigint visitor_id FK
+        text   plate "会变的值,不做主键"
+    }
+    visits {
+        bigint id PK
+        bigint visitor_id FK
+        text   plate
+        real   elapsed_s "接通→送达(25s SLA)"
+        bool   released  "放行状态"
+        timestamptz entered_at
+    }
+    admin_users {
+        text username PK
+        text totp_secret "无密码,单因子+限速"
+        text role "root | admin"
+        bool active
+    }
+```
+
+> **为什么这么建**:身份绑「会变的值」(车牌)会导致二次开发烂掉——所以用 **surrogate id 主键 + 手机唯一键**,车辆一对多。详见 HANDOFF §决策18。
+
+---
+
+## 🖥️ 门卫台 Console 功能
+
+| Tab | 作用 |
+|---|---|
+| **📟 值守台**(默认首页) | 实时来电号码 + 登记卡片流;新登记「🔔 请放行」→ 一键放行(占位闸机);⏱ 25s SLA 可视 |
+| **🐳 门卫台** | 对话式 Agent:读=NL→SQL(只读)、写=定型工具(改访客 / 合并重复画像),**写操作走 HITL 人工确认**;指代不明(多个「张师傅」)先反问再动手 |
+| **访客查询** | 一问一答 NL→SQL(只读护栏)+ 结构化搜索 + 统计 |
+| **👤 账号管理**(仅 root) | 建管理员(生成 TOTP 二维码)、停用、查看/踢下线会话 |
+| **模型切换** | 运行时切 OpenRouter 模型(下一通即生效)+ 单价对账 |
+| **通话 Trace** | 每通电话的推理 / 行为 / 延迟 trace(双写 Neon+JSONL) |
+
+---
+
+## 🔐 安全
+
+- **公网代理端点**(`/vapi/{secret}/…`):URL 内嵌密钥,错误密钥 403。
+- **门卫台 Console**:**无密码 TOTP 2FA**(Apple 密码 / Google Authenticator)+ **服务端会话**(httpOnly cookie,12h 过期,可即时吊销)+ **5 分钟 5 次限速**。首次 `/setup` 自举根管理员,建成即自禁用。
+- **密钥**:全部走 Fly secrets,不进镜像 / 代码;`.env` 已 gitignore。
+
+---
+
+## 🛠️ 技术栈
+
+| 层 | 选型 |
+|---|---|
+| 电话 + STT + TTS + 打断 | **Vapi**(底层 Azure zh-CN STT/TTS) |
+| 大脑 LLM | **OpenRouter · gpt-4o-mini**(经我方 custom-llm 代理) |
+| 后端 | **FastAPI**(代理+工具 · 门卫台 console) |
+| 数据 | **Neon Postgres** + asyncpg |
+| 鉴权 | **pyotp**(TOTP)+ **segno**(二维码)+ 服务端会话 |
+| 部署 | **Fly.io**(常温单机 · 两个公网服务)+ **GitHub Actions** CI/CD |
+
+---
+
+## 🚀 部署
+
+线上已跑在 Fly(iad):代理 `agentguard-yj.fly.dev`(443)+ 门卫台 `:8443`。**push 到 `main` 即自动部署**(GitHub Actions:import 冒烟 → `flyctl deploy`)。
 
 ```bash
-# 1. 依赖（Python 3.11+）
-python3.13 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+# 手动部署
+fly deploy --remote-only
 
-# 2. 配置环境变量（⚠️ 注释独立成行，勿写行内注释）
-cp .env.example .env
-
-# 3. 初始化数据库 (Neon)
-psql "$DATABASE_URL" -f db/schema.sql
-
-# 4. Admin Console：选择/切换 LLM 模型（运行时生效，下一通电话即用）
-uvicorn admin.server:app --port 8100      # → http://localhost:8100
-
-# 5. 启动门卫 Agent worker（常驻，等待派单；接通即固定开场白秒回）
-python -m app.agent dev
-
-# 6. 呼入 demo：打开 WebRTC 通话链接即可对话（SIP/PSTN 生产接入见 docs/HANDOFF.md §决策3）
+# 首次:密钥进 Fly secrets(不入代码)
+fly secrets set OPENROUTER_API_KEY=… DATABASE_URL=… VAPI_API_KEY=… VAPI_SERVER_SECRET=…
 ```
 
-> `requirements.txt` / `db/schema.sql` / `app/` 将在实现阶段落地，详见 [`docs/TODO.md`](docs/TODO.md)。
+## 💻 本地开发
 
-## 环境变量
+```bash
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env          # 填 OPENROUTER_API_KEY / DATABASE_URL / VAPI_* 等
+psql "$DATABASE_URL" -f db/schema.sql
 
-见 [`.env.example`](.env.example)。核心：`OPENROUTER_API_KEY`、`TWILIO_*`、`LIVEKIT_*`、`STT_*`/`TTS_*`、`DATABASE_URL`、`WECOM_WEBHOOK_URL`。
+uvicorn vapi.tools_server:app --port 8200    # 代理 + 工具(Vapi 打这里)
+uvicorn admin.server:app     --port 8100     # 门卫台 → http://localhost:8100
+```
 
-## 项目文档（harness）
+**环境变量**(见 [`.env.example`](.env.example)):`OPENROUTER_API_KEY` · `DATABASE_URL` · `VAPI_API_KEY` · `VAPI_SERVER_SECRET` · `WECOM_WEBHOOK_URL`(可空,值守台为主要保安接收面)。
+
+---
+
+## 📚 项目文档
 
 | 文档 | 用途 |
 |---|---|
-| [PROJECT_PLAN](docs/PROJECT_PLAN.md) | 整体规划 · 架构分层 · 7 天时间线 · 风险登记 |
-| [HANDOFF](docs/HANDOFF.md) | 关键决策与 trade-off · 未决项 · **答辩要点** |
-| [TODO](docs/TODO.md) | 待做清单（MVP / 加分，按优先级） |
-| [PROGRESS](docs/PROGRESS.md) | 已做（按日志记录） |
+| [HANDOFF](docs/HANDOFF.md) | 关键决策与 trade-off · 未决项 · 答辩要点 |
+| [decisions.mmd](docs/diagrams/decisions.mmd) | 关键决策树(每决策点同步更新) |
+| [PROJECT_PLAN](docs/PROJECT_PLAN.md) | 整体规划 · 分层 · 时间线 · 风险 |
 | [TOKEN_ACCOUNTING](docs/TOKEN_ACCOUNTING.md) | 读/写 token 与成本对账设计 |
+| [PROGRESS](docs/PROGRESS.md) · [TODO](docs/TODO.md) | 进度 / 待办 |
+
+---
+
+<sub>7 天 take-home · 上海蓝色鲸鱼科技(whaletech.ai)· 单 Agent · 轻量优先 · 诚实记录 trade-off</sub>
