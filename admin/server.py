@@ -4,19 +4,35 @@
 安全边界：OPENROUTER_API_KEY 只在服务端使用，前端永远看不到；本服务只应跑在本机/内网。
 """
 import re
+import secrets
 import time
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
 from app import memory, runtime_config, trace  # 包名 app 在下方被 FastAPI 实例遮蔽，导入须在此之前
 from app.config import settings
 
-app = FastAPI(title="AgentGuard Admin")
+_basic = HTTPBasic()
+
+
+def require_auth(cred: HTTPBasicCredentials = Depends(_basic)) -> str:
+    """全局 HTTP Basic 认证。未设 ADMIN_PASSWORD 则一律拒绝（拒裸奔）。"""
+    ok_user = secrets.compare_digest(cred.username, settings.admin_user)
+    ok_pass = bool(settings.admin_password) and secrets.compare_digest(cred.password, settings.admin_password)
+    if not (ok_user and ok_pass):
+        detail = "未配置 ADMIN_PASSWORD（在 .env 设置后重启）" if not settings.admin_password else "账号或密码错误"
+        raise HTTPException(status_code=401, detail=detail, headers={"WWW-Authenticate": "Basic"})
+    return cred.username
+
+
+# 全局依赖：所有路由（含首页 HTML）都要过认证
+app = FastAPI(title="AgentGuard Admin", dependencies=[Depends(require_auth)])
 STATIC = Path(__file__).parent / "static"
 _oai = AsyncOpenAI(api_key=settings.openrouter_api_key, base_url=settings.openrouter_base_url)
 

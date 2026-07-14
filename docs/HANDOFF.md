@@ -291,6 +291,19 @@
 
 ---
 
+## 决策 14（2026-07-13）— Admin Console 认证 + 暴露面
+
+**问题**：console 含访客 PII（车牌/手机号）+ 可切模型 + NL 查询，之前裸奔（仅 localhost 但无密码）。
+
+**决策**：加 **HTTP Basic 认证**（全局依赖，`admin/server.py:require_auth`），凭证走 `.env` 的 `ADMIN_USER`/`ADMIN_PASSWORD`。
+未设 `ADMIN_PASSWORD` 则一律 401（拒裸奔）。实测：无/错密码 401，对密码 200。console 仅绑 localhost:8100。
+
+**暴露面备忘（相关，待处理）**：`vapi/tools_server.py` 经 **公网 cloudflared 隧道**暴露，`/vapi/chat/completions`
+用我方 OpenRouter key、`/vapi/tools` 可写 visits。当前防护仅靠隧道 URL 随机+临时。
+**加固项**：设 Vapi assistant 的 `server.secret` → Vapi 回调带密钥头，我方校验（拒非 Vapi 请求）。demo 后补。
+
+---
+
 ## 未决项 / 待确认
 
 - [ ] 题目实际收到日（校准 Day 7 截止）——问对接人。

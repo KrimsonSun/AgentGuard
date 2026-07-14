@@ -21,6 +21,9 @@ class Settings:
     stt_api_key: str = os.getenv("STT_API_KEY", "")
     tts_provider: str = os.getenv("TTS_PROVIDER", "")
     tts_api_key: str = os.getenv("TTS_API_KEY", "")
+    # Admin Console 认证（访客含 PII，必须设密码）
+    admin_user: str = os.getenv("ADMIN_USER", "admin")
+    admin_password: str = os.getenv("ADMIN_PASSWORD", "")
 
 
 settings = Settings()
