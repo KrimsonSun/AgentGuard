@@ -483,6 +483,7 @@ class ChatReq(BaseModel):
     messages: list[dict]
     confirm: bool | None = None      # 上一轮写操作的人工确认结果
     choice: int | None = None        # 上一轮消歧卡片选中的 visitor_id
+    merge_pair: dict | None = None   # 消歧卡片上"是同一人,合并"→ {keep, merge}
 
 
 @app.post("/api/chat")
@@ -492,6 +493,20 @@ async def chat(req: ChatReq) -> dict:
     msgs = list(req.messages)
     if not msgs or msgs[0].get("role") != "system":
         msgs = [{"role": "system", "content": _CHAT_SYS}] + msgs
+
+    # 带 merge_pair：保安在消歧卡片上判定两位是同一人 → 造一个 merge 待确认卡（走原有 HITL）
+    if req.merge_pair:
+        keep, merge = int(req.merge_pair["keep"]), int(req.merge_pair["merge"])
+        args = {"keep_id": keep, "merge_id": merge}
+        info = {c["id"]: c for c in await memory.candidates_by_ids([keep, merge])}
+        kn = (info.get(keep) or {}).get("visitor_name") or f"#{keep}"
+        mn = (info.get(merge) or {}).get("visitor_name") or f"#{merge}"
+        summary = (f"判定为同一人：把「{mn}·#{merge}」合并进「{kn}·#{keep}」"
+                   "（次数累加、车辆与访问归并、删除被合并者，保留后者姓名）")
+        msgs.append({"role": "assistant", "content": None, "tool_calls": [{"id": f"merge_{keep}_{merge}",
+                     "type": "function", "function": {"name": "merge_visitors", "arguments": json.dumps(args)}}]})
+        return {"type": "confirm", "messages": msgs,
+                "action": {"name": "merge_visitors", "args": args, "summary": summary}}
 
     # 带 choice：保安点选了消歧卡片 → 后端直接成文作答，不再进 agent 循环
     #（模型对问题里的名字锚定太强，会无视点选去查同名的另一人 → 结构级杜绝：人点了谁就是谁）
