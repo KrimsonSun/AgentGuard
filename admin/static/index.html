@@ -10,9 +10,12 @@
   h1 { font-size: 1.2rem; margin: 0 0 4px; } h1 span { opacity: .5; font-weight: 400; font-size: .85rem; }
   .tabs { display: flex; gap: 6px; margin: 14px 0; border-bottom: 1px solid #8884; }
   .tab { padding: 8px 16px; cursor: pointer; border: none; background: none; font-size: .95rem; color: inherit;
-         border-bottom: 2px solid transparent; }
+         border-bottom: 2px solid transparent; border-radius: 8px 8px 0 0;
+         transition: color .2s ease, border-color .25s ease, background .2s ease; }
+  .tab:hover { background: color-mix(in srgb, seagreen 8%, transparent); }
   .tab.on { border-bottom-color: seagreen; color: seagreen; font-weight: 600; }
-  .panel { display: none; } .panel.on { display: block; }
+  .panel { display: none; } .panel.on { display: block; animation: panelIn .3s cubic-bezier(.33,.05,.2,1); }
+  @keyframes panelIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
   .card { padding: 10px 14px; border-radius: 10px; background: color-mix(in srgb, seagreen 12%, transparent);
           border: 1px solid seagreen; margin: 10px 0; }
   .bar { display: flex; gap: 8px; margin: 12px 0; }
@@ -43,6 +46,13 @@
   .confirm .btns { display: flex; gap: 8px; margin-top: 9px; }
   .confirm button { padding: 5px 16px; border-radius: 7px; border: none; cursor: pointer; font-size: .9rem; }
   .confirm .yes { background: seagreen; color: #fff; } .confirm .no { background: #8883; color: inherit; }
+  .msg.a.cursor::after { content: "▋"; margin-left: 1px; opacity: .55; animation: blink .9s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .typing { align-self: flex-start; background: #8882; border-radius: 12px; border-bottom-left-radius: 3px; padding: 12px 14px; display: inline-flex; gap: 5px; }
+  .typing i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .45; animation: bounce 1.1s infinite ease-in-out; }
+  .typing i:nth-child(2) { animation-delay: .18s; } .typing i:nth-child(3) { animation-delay: .36s; }
+  @keyframes bounce { 0%,70%,100% { transform: translateY(0); opacity: .35; } 35% { transform: translateY(-5px); opacity: .85; } }
+  @media (prefers-reduced-motion: reduce) { .panel.on, .fcard.fresh, .typing i, .msg.a.cursor::after { animation: none; } }
   .feedgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px,1fr)); gap: 12px; }
   .fcard { border: 1px solid seagreen; border-radius: 12px; padding: 12px 14px; background: color-mix(in srgb, seagreen 8%, transparent); position: relative; }
   .fcard.fresh { animation: pop .55s ease; box-shadow: 0 0 0 2px seagreen inset; }
@@ -162,7 +172,7 @@ document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
   document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
   document.querySelectorAll(".panel").forEach(x=>x.classList.remove("on"));
   t.classList.add("on"); $("p-"+t.dataset.p).classList.add("on");
-  stopFeed();
+  stopFeed(); stopTyper();
   if (t.dataset.p==="visitor") loadStats();
   if (t.dataset.p==="trace") loadCalls();
   if (t.dataset.p==="feed") startFeed();
@@ -213,25 +223,46 @@ async function loadTrace(cid){if(!cid)return;const d=await(await fetch("/api/tra
     const tool=e.tool_name?`[${esc(e.tool_name)}] `:"";const t=e.turn_index!=null?`t${e.turn_index}`:"  ";
     return `<span class="ev-${e.event_type}">${t} ${e.event_type.padEnd(14)} ${tool}${lat}${esc((e.content||'').replace(/\n/g,' ').slice(0,90))}</span>`;}).join("\n");}
 
-/* ---- 门卫台（多轮 + HITL 确认）---- */
-let chatMsgs = [], chatBusy = false;
-function renderChat(pending){
-  const log = $("chatlog");
-  let html = chatMsgs.filter(m => (m.role==="user"||m.role==="assistant") && m.content)
-    .map(m => `<div class="msg ${m.role==="user"?"u":"a"}">${esc(m.content)}</div>`).join("");
-  if (pending) html += `<div class="confirm"><b>⚠️ 待确认写操作</b><br>${esc(pending.summary)}
+/* ---- 门卫台（多轮 + HITL 确认 + 流式输出）---- */
+let chatMsgs = [], chatBusy = false, chatTyper = null;
+function stopTyper(){ if(chatTyper){ clearInterval(chatTyper); chatTyper=null; } }
+function chatBubbles(){ return chatMsgs.filter(m => (m.role==="user"||m.role==="assistant") && m.content); }
+function confirmCard(p){ return `<div class="confirm"><b>⚠️ 待确认写操作</b><br>${esc(p.summary)}
     <div class="btns"><button class="yes" onclick="chatConfirm(true)">确认执行</button>
-    <button class="no" onclick="chatConfirm(false)">取消</button></div></div>`;
+    <button class="no" onclick="chatConfirm(false)">取消</button></div></div>`; }
+function renderChat(pending, streamLast){
+  stopTyper();
+  const log = $("chatlog"), bubbles = chatBubbles();
+  let stream = null, statics = bubbles;
+  if (streamLast && bubbles.length && bubbles[bubbles.length-1].role==="assistant"){
+    stream = bubbles[bubbles.length-1]; statics = bubbles.slice(0,-1);
+  }
+  let html = statics.map(m => `<div class="msg ${m.role==="user"?"u":"a"}">${esc(m.content)}</div>`).join("");
+  if (stream) html += `<div class="msg a cursor" id="streaming"></div>`;
+  if (pending) html += confirmCard(pending);
   log.innerHTML = html; log.scrollTop = log.scrollHeight;
+  if (stream) typewrite($("streaming"), stream.content, log);
 }
-async function chatPost(body){
+function typewrite(el, text, log){
+  const step = Math.max(1, Math.ceil(text.length/70)); let i = 0;
+  chatTyper = setInterval(()=>{
+    i += step; el.textContent = text.slice(0, i); log.scrollTop = log.scrollHeight;
+    if (i >= text.length){ stopTyper(); el.classList.remove("cursor"); el.textContent = text; }
+  }, 24);
+}
+function showTyping(){
+  const log = $("chatlog");
+  log.insertAdjacentHTML("beforeend", '<div class="typing" id="typing"><i></i><i></i><i></i></div>');
+  log.scrollTop = log.scrollHeight;
+}
+async function chatPost(body, stream){
   chatBusy = true;
   try {
     const r = await fetch("/api/chat",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
     const d = await r.json();
-    if(!r.ok){ toast("❌ "+(d.detail||"出错")); return; }
+    if(!r.ok){ toast("❌ "+(d.detail||"出错")); renderChat(null); return; }
     chatMsgs = d.messages;
-    renderChat(d.type==="confirm" ? d.action : null);
+    renderChat(d.type==="confirm" ? d.action : null, stream);
   } finally { chatBusy = false; }
 }
 async function chatSend(){
@@ -239,11 +270,10 @@ async function chatSend(){
   const q = $("chatin").value.trim(); if(!q) return;
   $("chatin").value = "";
   chatMsgs.push({role:"user", content:q});
-  renderChat(null);
-  $("chatlog").insertAdjacentHTML("beforeend",'<div class="msg a" style="opacity:.5">…</div>'); $("chatlog").scrollTop=1e9;
-  await chatPost({messages: chatMsgs});
+  renderChat(null); showTyping();
+  await chatPost({messages: chatMsgs}, true);
 }
-async function chatConfirm(ok){ if(chatBusy) return; await chatPost({messages: chatMsgs, confirm: ok}); }
+async function chatConfirm(ok){ if(chatBusy) return; stopTyper(); showTyping(); await chatPost({messages: chatMsgs, confirm: ok}, true); }
 $("chatin").addEventListener("keydown",e=>{if(e.key==="Enter")chatSend();});
 
 /* ---- 值守台（实时 feed）---- */
