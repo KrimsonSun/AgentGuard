@@ -381,6 +381,13 @@ _CHAT_TOOLS = [
         "parameters": {"type": "object", "properties": {
             "visitor_id": {"type": "integer"}}, "required": ["visitor_id"]}}},
     {"type": "function", "function": {
+        "name": "ask_visitor_choice",
+        "description": "有多个同名候选、需要保安点选是哪一位时调用。系统会给保安弹出候选卡片点选，你收到所选 visitor_id 后继续。传候选 visitor_id 列表。",
+        "parameters": {"type": "object", "properties": {
+            "visitor_ids": {"type": "array", "items": {"type": "integer"}},
+            "question": {"type": "string", "description": "给保安的一句话，如『您指的是哪一位张师傅？』"}},
+            "required": ["visitor_ids"]}}},
+    {"type": "function", "function": {
         "name": "update_visitor", "description": "更新某访客信息（手机/称呼/常访单位/常访事由）。写操作，需人工确认。",
         "parameters": {"type": "object", "properties": {
             "visitor_id": {"type": "integer"}, "visitor_name": {"type": "string"}, "phone": {"type": "string"},
@@ -399,8 +406,9 @@ _CHAT_SYS = (
     "① 先调 find_visitors 查候选——用姓氏或部分名字【放宽】匹配（查『张师傅』就 find_visitors(name='张')），"
     "避免漏掉同姓的其他人（『张师傅』和『张先生』可能是两个人）；\n"
     "② 0 人 → 告知查无此人；\n"
-    "③ ≥2 人（多个同名）→ 逐个列出【手机 + 名下车牌 + 累计次数】，反问『您指的是哪一位？可报手机或车牌』，"
-    "在保安指明前【绝不给出任何次数或明细】；\n"
+    "③ find_visitors 返回 ≥2 人 → 调 ask_visitor_choice，把**返回的所有候选 id 都传进去**"
+    "（切勿自己按名字筛掉同姓的——保安嘴上说『张师傅』也完全可能其实是『张先生』，让保安自己认）；"
+    "系统会弹候选卡片给保安点选，不要用纯文字列举、也不要让保安打字；保安选定前【绝不给出任何次数或明细】；\n"
     "④ 恰好 1 人，或保安已用手机/车牌指明唯一一位 → 调 visitor_report(visitor_id)，回答必须包含："
     "身份(姓名+手机+车牌) + 总次数 + 按事由拆分(几次做什么、各自最近时间)。绝不只回一个光秃秃的总数。\n"
     "维护类(改/合并)照常调用，系统会弹人工确认。回答简洁中文。" + _SCHEMA_HINT
@@ -430,6 +438,20 @@ async def _chat_exec(name: str, args: dict):
     return {"error": f"未知工具 {name}"}
 
 
+def _format_report(rep: dict | None) -> str:
+    """把 visitor_report 结构化成一句门卫能看的话：身份 + 总数 + 按事由拆分。确定性，不经模型。"""
+    if not rep:
+        return "没找到这位访客的记录。"
+    who = rep.get("visitor_name") or "该访客"
+    parts = []
+    for b in rep.get("by_purpose", []):
+        last = str(b.get("last_at") or "")[:16].replace("T", " ")
+        parts.append(f"{b['n']} 次{b['purpose']}（最近 {last}）")
+    breakdown = "；".join(parts) if parts else "暂无明细"
+    return (f"{who}（手机 {rep.get('phone', '—')}，车牌 {rep.get('plates') or '—'}）"
+            f"累计来访 {rep.get('visits_total', 0)} 次。按事由拆分：{breakdown}。")
+
+
 def _summarize_write(name: str, args: dict) -> str:
     if name == "update_visitor":
         chg = "、".join(f"{k}={v}" for k, v in args.items() if k != "visitor_id" and v)
@@ -441,6 +463,7 @@ def _summarize_write(name: str, args: dict) -> str:
 class ChatReq(BaseModel):
     messages: list[dict]
     confirm: bool | None = None      # 上一轮写操作的人工确认结果
+    choice: int | None = None        # 上一轮消歧卡片选中的 visitor_id
 
 
 @app.post("/api/chat")
@@ -450,6 +473,18 @@ async def chat(req: ChatReq) -> dict:
     msgs = list(req.messages)
     if not msgs or msgs[0].get("role") != "system":
         msgs = [{"role": "system", "content": _CHAT_SYS}] + msgs
+
+    # 带 choice：保安点选了消歧卡片 → 后端直接成文作答，不再进 agent 循环
+    #（模型对问题里的名字锚定太强，会无视点选去查同名的另一人 → 结构级杜绝：人点了谁就是谁）
+    if req.choice is not None and msgs and msgs[-1].get("tool_calls"):
+        for tc in msgs[-1]["tool_calls"]:
+            if tc["function"]["name"] == "ask_visitor_choice":
+                rep = await memory.visitor_report(int(req.choice))
+                msgs.append({"role": "tool", "tool_call_id": tc["id"],
+                             "content": json.dumps(rep, default=str, ensure_ascii=False)})
+                answer = _format_report(rep)
+                msgs.append({"role": "assistant", "content": answer})
+                return {"type": "message", "content": answer, "messages": msgs}
 
     # 带 confirm：解决上一条 assistant 里待确认的写工具调用
     if req.confirm is not None and msgs and msgs[-1].get("tool_calls"):
@@ -472,6 +507,10 @@ async def chat(req: ChatReq) -> dict:
         tc = m.tool_calls[0]
         fn = tc.function.name
         args = json.loads(tc.function.arguments or "{}")
+        if fn == "ask_visitor_choice":                 # 消歧 → 暂停，给保安弹候选点选
+            opts = await memory.candidates_by_ids([int(i) for i in args.get("visitor_ids", [])])
+            return {"type": "choose", "messages": msgs,
+                    "question": args.get("question") or "您指的是哪一位？", "options": opts}
         if fn in _WRITE_TOOLS:                         # 写操作 → 暂停，等前端人工确认
             return {"type": "confirm", "messages": msgs,
                     "action": {"name": fn, "args": args, "summary": _summarize_write(fn, args)}}

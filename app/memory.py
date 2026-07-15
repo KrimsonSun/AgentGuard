@@ -89,7 +89,10 @@ async def find_candidates(name: str = "", phone: str = "", plate: str = "") -> l
     """按 姓名/手机/车牌 找候选访客（用于消歧“是哪个张师傅”）。任一条件命中即返回，带名下车牌。"""
     conds, args = [], []
     if name:
-        args.append(f"%{name}%"); conds.append(f"v.visitor_name ILIKE ${len(args)}")
+        # 姓氏前缀放宽 + 全名子串：查“张师傅”也 surface 同姓的“张先生”，结构级消歧不漏人
+        args.append(f"{name[0]}%"); c1 = f"v.visitor_name ILIKE ${len(args)}"
+        args.append(f"%{name}%"); c2 = f"v.visitor_name ILIKE ${len(args)}"
+        conds.append(f"({c1} OR {c2})")
     if phone:
         args.append(f"%{phone}%"); conds.append(f"v.phone LIKE ${len(args)}")
     if plate:
@@ -127,6 +130,19 @@ async def visitor_report(visitor_id: int) -> dict | None:
         visitor_id)
     total = await p.fetchval("SELECT count(*) FROM visits WHERE visitor_id = $1", visitor_id)
     return {**dict(v), "visits_total": total, "by_purpose": [dict(r) for r in rows]}
+
+
+async def candidates_by_ids(ids: list[int]) -> list[dict]:
+    """按 visitor_id 列表取候选展示信息（消歧点选卡片用）。"""
+    if not ids:
+        return []
+    rows = await (await pool()).fetch(
+        """SELECT v.id, v.phone, v.visitor_name, v.visit_count, v.last_visit_at,
+                  COALESCE((SELECT string_agg(plate, '、' ORDER BY last_seen DESC)
+                            FROM vehicles WHERE visitor_id = v.id), '') AS plates
+           FROM visitors v WHERE v.id = ANY($1::bigint[]) ORDER BY v.visit_count DESC""",
+        ids)
+    return [dict(r) for r in rows]
 
 
 async def update_visitor(visitor_id: int, visitor_name: str | None = None, phone: str | None = None,

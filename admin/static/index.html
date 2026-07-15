@@ -53,6 +53,13 @@
   .typing i:nth-child(2) { animation-delay: .18s; } .typing i:nth-child(3) { animation-delay: .36s; }
   @keyframes bounce { 0%,70%,100% { transform: translateY(0); opacity: .35; } 35% { transform: translateY(-5px); opacity: .85; } }
   @media (prefers-reduced-motion: reduce) { .panel.on, .fcard.fresh, .typing i, .msg.a.cursor::after { animation: none; } }
+  .choose { align-self: flex-start; max-width: 90%; padding: 11px 14px; border-radius: 12px; border: 1px solid #0891b2; background: color-mix(in srgb, #0891b2 12%, transparent); animation: panelIn .25s ease; }
+  .choose .opts { display: flex; flex-direction: column; gap: 7px; margin-top: 10px; }
+  .choose .opt { text-align: left; padding: 9px 12px; border-radius: 9px; border: 1px solid #0891b2; background: Canvas; color: inherit; cursor: pointer; display: flex; flex-direction: column; gap: 3px; transition: background .15s ease, transform .05s ease; }
+  .choose .opt:hover { background: color-mix(in srgb, #0891b2 16%, transparent); }
+  .choose .opt:active { transform: scale(.99); }
+  .choose .opt-name { font-weight: 600; }
+  .choose .opt-sub { font-size: .8rem; opacity: .78; font-family: ui-monospace, monospace; }
   .feedgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px,1fr)); gap: 12px; }
   .fcard { border: 1px solid seagreen; border-radius: 12px; padding: 12px 14px; background: color-mix(in srgb, seagreen 8%, transparent); position: relative; }
   .fcard.fresh { animation: pop .55s ease; box-shadow: 0 0 0 2px seagreen inset; }
@@ -230,7 +237,13 @@ function chatBubbles(){ return chatMsgs.filter(m => (m.role==="user"||m.role==="
 function confirmCard(p){ return `<div class="confirm"><b>⚠️ 待确认写操作</b><br>${esc(p.summary)}
     <div class="btns"><button class="yes" onclick="chatConfirm(true)">确认执行</button>
     <button class="no" onclick="chatConfirm(false)">取消</button></div></div>`; }
-function renderChat(pending, streamLast){
+function chooseCard(c){
+  const opts = (c.options||[]).map(o => `<button class="opt" onclick="chatChoose(${o.id})">
+    <span class="opt-name">${esc(o.visitor_name||'（未留名）')}</span>
+    <span class="opt-sub">📱 ${esc(o.phone||'—')} · 🚗 ${esc(o.plates||'—')} · 共 ${o.visit_count||0} 次</span></button>`).join("");
+  return `<div class="choose"><b>🤔 ${esc(c.question||'您指的是哪一位？')}</b><div class="opts">${opts}</div></div>`;
+}
+function renderChat(pending, streamLast, choose){
   stopTyper();
   const log = $("chatlog"), bubbles = chatBubbles();
   let stream = null, statics = bubbles;
@@ -240,6 +253,7 @@ function renderChat(pending, streamLast){
   let html = statics.map(m => `<div class="msg ${m.role==="user"?"u":"a"}">${esc(m.content)}</div>`).join("");
   if (stream) html += `<div class="msg a cursor" id="streaming"></div>`;
   if (pending) html += confirmCard(pending);
+  if (choose) html += chooseCard(choose);
   log.innerHTML = html; log.scrollTop = log.scrollHeight;
   if (stream) typewrite($("streaming"), stream.content, log);
 }
@@ -262,7 +276,9 @@ async function chatPost(body, stream){
     const d = await r.json();
     if(!r.ok){ toast("❌ "+(d.detail||"出错")); renderChat(null); return; }
     chatMsgs = d.messages;
-    renderChat(d.type==="confirm" ? d.action : null, stream);
+    if (d.type==="confirm") renderChat(d.action, false, null);
+    else if (d.type==="choose") renderChat(null, false, d);
+    else renderChat(null, stream, null);
   } finally { chatBusy = false; }
 }
 async function chatSend(){
@@ -274,6 +290,7 @@ async function chatSend(){
   await chatPost({messages: chatMsgs}, true);
 }
 async function chatConfirm(ok){ if(chatBusy) return; stopTyper(); showTyping(); await chatPost({messages: chatMsgs, confirm: ok}, true); }
+async function chatChoose(id){ if(chatBusy) return; stopTyper(); showTyping(); await chatPost({messages: chatMsgs, choice: id}, true); }
 $("chatin").addEventListener("keydown",e=>{if(e.key==="Enter")chatSend();});
 
 /* ---- 值守台（实时 feed）---- */
