@@ -373,9 +373,13 @@ _CHAT_TOOLS = [
         "parameters": {"type": "object", "properties": {
             "sql": {"type": "string", "description": "一条 SELECT 语句"}}, "required": ["sql"]}}},
     {"type": "function", "function": {
-        "name": "find_visitors", "description": "按姓名/手机/车牌查找候选访客，用于消歧（如多个张师傅）。任一条件可空。",
+        "name": "find_visitors", "description": "按姓名/手机/车牌查找候选访客，用于消歧（如多个张师傅）。任一条件可空。返回每人的手机、名下车牌、累计次数。",
         "parameters": {"type": "object", "properties": {
             "name": {"type": "string"}, "phone": {"type": "string"}, "plate": {"type": "string"}}}}},
+    {"type": "function", "function": {
+        "name": "visitor_report", "description": "取某访客(visitor_id)的明细：总次数 + 按事由拆分(各几次、最近时间) + 名下车牌。定位到唯一身份后用它作答。",
+        "parameters": {"type": "object", "properties": {
+            "visitor_id": {"type": "integer"}}, "required": ["visitor_id"]}}},
     {"type": "function", "function": {
         "name": "update_visitor", "description": "更新某访客信息（手机/称呼/常访单位/常访事由）。写操作，需人工确认。",
         "parameters": {"type": "object", "properties": {
@@ -388,11 +392,18 @@ _CHAT_TOOLS = [
 ]
 _WRITE_TOOLS = {"update_visitor", "merge_visitors"}
 _CHAT_SYS = (
-    "你是门卫台助手，帮保安查询和维护访客库。"
-    "查询：统计/明细用 run_sql（只读 SELECT）；找某个人用 find_visitors（姓名/手机/车牌）。"
-    "维护：改信息用 update_visitor；把因车牌听花被拆成多条的同一人合并用 merge_visitors。"
-    "关键规矩：指代不明（如有多个『张师傅』）必须先 find_visitors 列候选，用手机/车牌帮保安区分并反问『是哪一位』，绝不自己瞎猜挑一个。"
-    "写操作（update/merge）执行前系统会弹人工确认，你正常调用即可。回答简洁中文。" + _SCHEMA_HINT
+    "你是门卫台助手，帮保安查询和维护访客库。工具：find_visitors(按姓名/手机/车牌找人)、"
+    "visitor_report(某人明细:总次数+按事由拆分)、run_sql(只读统计 SELECT)、update_visitor/merge_visitors(写,需人工确认)。\n"
+    "【针对某个人的查询——最重要的规矩】只凭姓名（如『张师傅来了几次』）绝不能直接回答：同名的可能是好几个人，"
+    "而且同一个人不同事由也该拆开看。必须走这个流程：\n"
+    "① 先调 find_visitors 查候选——用姓氏或部分名字【放宽】匹配（查『张师傅』就 find_visitors(name='张')），"
+    "避免漏掉同姓的其他人（『张师傅』和『张先生』可能是两个人）；\n"
+    "② 0 人 → 告知查无此人；\n"
+    "③ ≥2 人（多个同名）→ 逐个列出【手机 + 名下车牌 + 累计次数】，反问『您指的是哪一位？可报手机或车牌』，"
+    "在保安指明前【绝不给出任何次数或明细】；\n"
+    "④ 恰好 1 人，或保安已用手机/车牌指明唯一一位 → 调 visitor_report(visitor_id)，回答必须包含："
+    "身份(姓名+手机+车牌) + 总次数 + 按事由拆分(几次做什么、各自最近时间)。绝不只回一个光秃秃的总数。\n"
+    "维护类(改/合并)照常调用，系统会弹人工确认。回答简洁中文。" + _SCHEMA_HINT
 )
 
 
@@ -409,6 +420,8 @@ async def _chat_exec(name: str, args: dict):
                 return [dict(r) for r in await conn.fetch(sql)]
     if name == "find_visitors":
         return await memory.find_candidates(args.get("name", ""), args.get("phone", ""), args.get("plate", ""))
+    if name == "visitor_report":
+        return await memory.visitor_report(int(args["visitor_id"]))
     if name == "update_visitor":
         return await memory.update_visitor(int(args["visitor_id"]), args.get("visitor_name"),
                                            args.get("phone"), args.get("usual_company"), args.get("usual_purpose"))

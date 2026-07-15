@@ -107,6 +107,28 @@ async def find_candidates(name: str = "", phone: str = "", plate: str = "") -> l
     return [dict(r) for r in rows]
 
 
+async def visitor_report(visitor_id: int) -> dict | None:
+    """某访客的完整画像 + 按事由拆分的来访明细（门卫台确认身份后作答用）。
+
+    返回：身份(姓名/手机/车牌) + 总次数 + by_purpose[{purpose, n, last_at}]。
+    次数以 visits 实际行数为准（与拆分之和一致），不用可能被 seed 改过的 visit_count。
+    """
+    p = await pool()
+    v = await p.fetchrow(
+        """SELECT id, phone, visitor_name, visit_count, last_visit_at,
+                  COALESCE((SELECT string_agg(plate, '、' ORDER BY last_seen DESC)
+                            FROM vehicles WHERE visitor_id = $1), '') AS plates
+           FROM visitors WHERE id = $1""", visitor_id)
+    if not v:
+        return None
+    rows = await p.fetch(
+        """SELECT purpose, count(*) AS n, max(entered_at) AS last_at
+           FROM visits WHERE visitor_id = $1 GROUP BY purpose ORDER BY n DESC, last_at DESC""",
+        visitor_id)
+    total = await p.fetchval("SELECT count(*) FROM visits WHERE visitor_id = $1", visitor_id)
+    return {**dict(v), "visits_total": total, "by_purpose": [dict(r) for r in rows]}
+
+
 async def update_visitor(visitor_id: int, visitor_name: str | None = None, phone: str | None = None,
                          usual_company: str | None = None, usual_purpose: str | None = None) -> dict | None:
     """更新访客信息（只改传入的非空字段）。返回更新后的行。"""
