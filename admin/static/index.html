@@ -273,12 +273,14 @@ async function chatPost(body, stream){
   chatBusy = true;
   try {
     const r = await fetch("/api/chat",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
-    const d = await r.json();
-    if(!r.ok){ toast("❌ "+(d.detail||"出错")); renderChat(null); return; }
-    chatMsgs = d.messages;
+    let d = {}; try { d = await r.json(); } catch(e){}      // 500 可能返回非 JSON，别让它抛
+    if(!r.ok){ toast("❌ "+(d.detail||("出错 "+r.status))); renderChat(null); return; }
+    chatMsgs = d.messages || chatMsgs;
     if (d.type==="confirm") renderChat(d.action, false, null);
     else if (d.type==="choose") renderChat(null, false, d);
     else renderChat(null, stream, null);
+  } catch(e){                                               // 网络错误也要清掉"正在输入"，永不卡死
+    toast("❌ 网络错误，请重试"); renderChat(null);
   } finally { chatBusy = false; }
 }
 async function chatSend(){

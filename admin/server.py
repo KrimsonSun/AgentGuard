@@ -460,6 +460,25 @@ def _summarize_write(name: str, args: dict) -> str:
             "（次数累加、车辆与访问记录归并、删除被合并者）")
 
 
+def _heal_dangling_tools(msgs: list[dict]) -> list[dict]:
+    """给"未点选/确认就被新消息打断"的 tool_call 补占位结果。
+
+    保安不点候选卡/确认卡、直接打字发新消息时，上一条 assistant 的 tool_call 会悬空；
+    这段历史发给 OpenAI 会因"tool_call 没有对应 tool 结果"直接 400 → 卡死。这里补齐。
+    """
+    out = []
+    for i, m in enumerate(msgs):
+        out.append(m)
+        if m.get("role") == "assistant" and m.get("tool_calls"):
+            nxt = msgs[i + 1] if i + 1 < len(msgs) else None
+            if not nxt or nxt.get("role") != "tool":       # 悬空：后面不是 tool 结果
+                for tc in m["tool_calls"]:
+                    out.append({"role": "tool", "tool_call_id": tc["id"],
+                                "content": json.dumps({"note": "保安未点选，改为新输入，忽略此步"},
+                                                      ensure_ascii=False)})
+    return out
+
+
 class ChatReq(BaseModel):
     messages: list[dict]
     confirm: bool | None = None      # 上一轮写操作的人工确认结果
@@ -497,6 +516,8 @@ async def chat(req: ChatReq) -> dict:
                     content = json.dumps({"ok": False, "cancelled": "保安取消了此操作"}, ensure_ascii=False)
                 msgs.append({"role": "tool", "tool_call_id": tc["id"], "content": content})
 
+    msgs = _heal_dangling_tools(msgs)   # 没点卡片、直接打字 → 补悬空 tool_call，防 400 卡死
+    last_candidates: list = []          # 最近一次 find_visitors 的全部候选（消歧卡片以此为准）
     for _ in range(8):
         r = await _oai().chat.completions.create(model=model, temperature=0.2, messages=msgs,
                                                tools=_CHAT_TOOLS, parallel_tool_calls=False)
@@ -508,13 +529,16 @@ async def chat(req: ChatReq) -> dict:
         fn = tc.function.name
         args = json.loads(tc.function.arguments or "{}")
         if fn == "ask_visitor_choice":                 # 消歧 → 暂停，给保安弹候选点选
-            opts = await memory.candidates_by_ids([int(i) for i in args.get("visitor_ids", [])])
+            # 用最近一次 find_visitors 的【全部】候选，无视模型可能的私自筛选（否则会漏掉同姓的人）
+            opts = last_candidates or await memory.candidates_by_ids([int(i) for i in args.get("visitor_ids", [])])
             return {"type": "choose", "messages": msgs,
                     "question": args.get("question") or "您指的是哪一位？", "options": opts}
         if fn in _WRITE_TOOLS:                         # 写操作 → 暂停，等前端人工确认
             return {"type": "confirm", "messages": msgs,
                     "action": {"name": fn, "args": args, "summary": _summarize_write(fn, args)}}
         res = await _chat_exec(fn, args)               # 读操作 → 即时执行
+        if fn == "find_visitors" and isinstance(res, list):
+            last_candidates = res                      # 记下全部候选，供 ask_visitor_choice 用
         msgs.append({"role": "tool", "tool_call_id": tc.id,
                      "content": json.dumps(res, default=str, ensure_ascii=False)})
     return {"type": "message", "content": "（达到最大步数，请简化问题重试）", "messages": msgs}
